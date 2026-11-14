@@ -4,7 +4,7 @@ Date: 14 November 2026. Platform: Windows, Python 3.12.14, Node.js 24.22.0.
 
 ## Passed locally
 
-- 11 Python tests: perspective mapping, invalid calibration/annotation rejection, invalid-upload cleanup, actual MP4 import and frame decode, revision conflict/history, reviewed-only statistics, CSV formula protection, PNG generation including empty sessions, asynchronous tracking isolation, deletion confinement, cross-origin writes, interrupted-job recovery, and release allowlisting.
+- 13 Python tests: perspective mapping, invalid calibration/annotation rejection, invalid-upload cleanup, actual MP4 import and frame decode, revision conflict/history, reviewed-only statistics, CSV formula protection, PNG generation including empty sessions, asynchronous tracking isolation, deletion confinement, cross-origin writes, interrupted-job recovery, release allowlisting, seeded-colour tracking under moving-background distraction, and long-occlusion rejection.
 - 4 TypeScript unit tests: perspective mapping, underdetermined geometry, statistics denominators, and disconnected track gaps.
 - 3 Chromium end-to-end tests: demo/correction/save/reload/exports/tracking; MP4 upload/calibration/delivery creation/bounce marking/filtering; mobile viewport fit.
 - TypeScript strict compilation including unused declarations/parameters; Vite production build.
@@ -14,6 +14,8 @@ Date: 14 November 2026. Platform: Windows, Python 3.12.14, Node.js 24.22.0.
 - Desktop and mobile renderings inspected. The local app is launched separately on port 8000 with a synthetic demonstration session.
 
 ## Observations
+
+A user-supplied broadcast compilation has now been imported and reviewed locally. Three short intervals and a sparse image-space reference were prepared. This prompted an optional seeded appearance tracker; its development spot-check is described in [FOOTAGE-TRIAL.md](FOOTAGE-TRIAL.md). Broadcast camera changes prevent treating this as the planned fixed-camera net benchmark.
 
 The first remote [Checks and build run](https://github.com/ayodhettz/crease-lab/actions/runs/43574888901) passed on Windows and Linux, including the frontend/browser job. The initial action versions emitted a runner deprecation warning; subsequent workflow configuration pins verified current official release commits. Check the latest Actions run for the pinned configuration and versioned delivery results.
 

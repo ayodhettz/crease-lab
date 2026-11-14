@@ -43,7 +43,7 @@ test('demo, manual correction, persistence, map, exports, and tracking', async (
 
   await page.getByRole('button', { name: 'Suggest track' }).click();
   await expect(page.locator('.job-result')).toContainText('COMPLETED');
-  await expect(page.locator('.job-result')).toContainText('Experimental motion');
+  await expect(page.locator('.job-result')).toContainText(/Experimental (motion|appearance)/);
   await expect(page.getByLabel('Delivery label', { exact: true })).toHaveValue(
     'Corrected first ball',
   );

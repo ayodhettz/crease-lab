@@ -574,7 +574,7 @@ function App() {
                 <div>
                   <div className="eyebrow">
                     NET SESSION <span>/</span>{' '}
-                    {session.video.synthetic ? 'SYNTHETIC DEMO' : 'SINGLE CAMERA'}
+                    {session.video.synthetic ? 'SYNTHETIC DEMO' : 'RECORDED FOOTAGE'}
                   </div>
                   <h1>{draft.name}</h1>
                   <p>
@@ -923,7 +923,7 @@ function App() {
                     </svg>
                     <div className="video-top-label">
                       <span className="record-dot" />
-                      {session.video.synthetic ? 'DEMO FOOTAGE' : 'BOWLER-END VIEW'}
+                      {session.video.synthetic ? 'DEMO FOOTAGE' : 'SOURCE FOOTAGE'}
                     </div>
                     <div className="video-bottom-label">
                       {mode === 'bounce'

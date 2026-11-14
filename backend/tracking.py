@@ -3,7 +3,71 @@
 import cv2
 import numpy as np
 
-PIPELINE_VERSION = "motion-baseline-0.1.0"
+PIPELINE_VERSION = "motion-appearance-0.2.0"
+
+
+class BallAppearance:
+    """Small saturated-colour model learned from a user seed, not a global red-ball rule."""
+
+    def __init__(self, image, centre):
+        x, y = np.round(centre).astype(int)
+        height, width = image.shape[:2]
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        patch = hsv[max(0, y - 4) : min(height, y + 5), max(0, x - 4) : min(width, x + 5)]
+        pixels = patch.reshape(-1, 3)
+        saturated = pixels[pixels[:, 1] >= 70]
+        self.active = len(saturated) >= max(6, len(pixels) // 2)
+        self.area = None
+        if not self.active:
+            return
+        angles = saturated[:, 0].astype(float) / 180 * 2 * np.pi
+        self.hue = float(
+            np.arctan2(np.sin(angles).mean(), np.cos(angles).mean())
+            % (2 * np.pi)
+            * 180
+            / (2 * np.pi)
+        )
+        self.min_saturation = max(55, float(np.median(saturated[:, 1])) * 0.55)
+        matches = self.candidates(image)
+        if matches:
+            chosen = min(matches, key=lambda c: np.linalg.norm(c[0] - centre))
+            if np.linalg.norm(chosen[0] - centre) <= 20:
+                self.area = chosen[1]
+            else:
+                self.active = False
+        else:
+            self.active = False
+
+    def candidates(self, image):
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        hue_distance = np.abs(hsv[:, :, 0].astype(float) - self.hue)
+        hue_distance = np.minimum(hue_distance, 180 - hue_distance)
+        mask = (
+            (hue_distance <= 14) & (hsv[:, :, 1] >= self.min_saturation) & (hsv[:, :, 2] >= 20)
+        ).astype(np.uint8) * 255
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        candidates = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            _, _, w, h = cv2.boundingRect(contour)
+            if area < 6 or area > image.shape[0] * image.shape[1] * 0.015:
+                continue
+            if max(w, h) / max(1, min(w, h)) > 2.5:
+                continue
+            if self.area and not self.area * 0.2 <= area <= self.area * 4:
+                continue
+            moments = cv2.moments(contour)
+            if moments["m00"]:
+                candidates.append(
+                    (
+                        np.array(
+                            [moments["m10"] / moments["m00"], moments["m01"] / moments["m00"]]
+                        ),
+                        area,
+                    )
+                )
+        return candidates
 
 
 def track_video(path, start, end, seed=None, roi=None):
@@ -11,6 +75,8 @@ def track_video(path, start, end, seed=None, roi=None):
     points = []
     previous = None
     last = None
+    velocity = np.zeros(2)
+    appearance = None
     gap = 0
     width, height = int(cap.get(3)), int(cap.get(4))
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -33,6 +99,7 @@ def track_video(path, start, end, seed=None, roi=None):
             grey = cv2.GaussianBlur(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (5, 5), 0)
             if seed and frame == seed["frame"]:
                 last = np.array([seed["x"] * width, seed["y"] * height])
+                appearance = BallAppearance(image, last)
                 points.append(
                     {
                         "frame": frame,
@@ -45,6 +112,40 @@ def track_video(path, start, end, seed=None, roi=None):
                 previous, gap = grey, 0
                 continue
             if previous is None or frame < start or (seed and frame < seed["frame"]):
+                previous = grey
+                continue
+            if appearance and appearance.active:
+                # Do not switch to unrelated motion when the seeded appearance is hidden.
+                # A short occlusion can recover locally; a long gap ends this seeded track.
+                if last is None:
+                    previous = grey
+                    continue
+                expected = last + velocity * (gap + 1)
+                radius = min(min(width, height) * 0.2, max(35, np.sqrt(appearance.area or 25) * 4))
+                choices = [
+                    (float(np.linalg.norm(p - expected)), p)
+                    for p, _ in appearance.candidates(image)
+                    if np.linalg.norm(p - expected) <= radius
+                ]
+                choices.sort(key=lambda c: c[0])
+                if choices and (len(choices) == 1 or choices[1][0] - choices[0][0] >= 3):
+                    position = choices[0][1]
+                    velocity = 0.5 * velocity + 0.5 * (position - last) / (gap + 1)
+                    last = position
+                    points.append(
+                        {
+                            "frame": frame,
+                            "x": float(last[0] / width),
+                            "y": float(last[1] / height),
+                            "provenance": "observed",
+                            "score": 0.55,
+                        }
+                    )
+                    gap = 0
+                else:
+                    gap += 1
+                    if gap > max(2, round(fps * 0.15)):
+                        last = None
                 previous = grey
                 continue
             delta = cv2.absdiff(previous, grey)
@@ -96,6 +197,12 @@ def track_video(path, start, end, seed=None, roi=None):
         "pipeline": PIPELINE_VERSION,
         "points": points,
         "bounce": None,
-        "message": "Experimental motion candidates. Inspect the trail and mark ground contact manually. "
+        "method": "seeded-appearance" if appearance and appearance.active else "motion",
+        "message": (
+            "Experimental appearance-assisted candidates. "
+            if appearance and appearance.active
+            else "Experimental motion candidates. "
+        )
+        + "Inspect the trail and mark ground contact manually. "
         "No automatic bounce or 3D accuracy is claimed.",
     }

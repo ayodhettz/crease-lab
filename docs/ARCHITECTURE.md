@@ -49,7 +49,7 @@ Statistics include only deliveries explicitly marked reviewed with a mapped boun
 
 Frame requests decode from a fresh capture and seek by nominal frame index. This is simple and works for manual review but may be slow for long-GOP/4K recordings. Thumbnail/frame caches and timestamp-aware decoding should be added after profiling. Playback is a sampled preview, not a high-FPS player.
 
-The baseline detector is deliberately replaceable. Its fixed 0.35 score is a heuristic. It records no interpolated points and makes no bounce, speed, or 3D predictions. Add a trained detector only after an annotated real-footage benchmark identifies the biggest failures.
+The detector is deliberately replaceable. With a saturated-colour manual seed, an HSV appearance model selects nearby size-compatible components and estimates their centres, using a short motion predictor to resolve choices. Ambiguous/missing observations are left missing; a long gap ends the seeded track. Low-saturation seeds and unseeded runs retain the motion baseline. Scores (0.35 motion, 0.55 appearance) are heuristics, not probabilities. The pipeline version is stored per run. It records no interpolated points and makes no bounce, speed, or 3D predictions. Add a trained detector only after a representative real-footage benchmark identifies the biggest failures.
 
 ## Evidence
 
