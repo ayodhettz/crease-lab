@@ -21,6 +21,7 @@ class TrackPoint(Point):
 class Bounce(Point):
     frame: int = Field(ge=0)
     provenance: Literal["manual", "suggested"] = "manual"
+    ground_eligible: bool = True
 
 
 class Calibration(StrictModel):
@@ -49,7 +50,7 @@ class Delivery(StrictModel):
     tag: str = Field(default="", max_length=100)
     start: int = Field(ge=0)
     end: int = Field(ge=0)
-    status: Literal["unreviewed", "reviewed", "full_toss", "unresolved"] = "unreviewed"
+    status: Literal["unreviewed", "reviewed", "estimated", "full_toss", "unresolved"] = "unreviewed"
     bounce: Bounce | None = None
     track: list[TrackPoint] = Field(default_factory=list, max_length=10000)
 

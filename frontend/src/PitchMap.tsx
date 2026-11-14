@@ -114,7 +114,13 @@ export function PitchMap({
             cx={x(p.x)}
             cy={y(p.y)}
             r="6"
-            fill={p.delivery.status === 'reviewed' ? '#d3693c' : '#7f8a88'}
+            fill={
+              p.delivery.status === 'reviewed'
+                ? '#d3693c'
+                : p.delivery.status === 'estimated'
+                  ? '#c7a346'
+                  : '#7f8a88'
+            }
             stroke="white"
             strokeWidth="1.5"
           />

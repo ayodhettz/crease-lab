@@ -235,6 +235,7 @@ def create_app(data_dir: Path | None = None):
                 delivery["end"],
                 snapshot["seed"],
                 snapshot["roi"],
+                snapshot.get("calibration"),
             )
             store.update_job(jid, "completed", result=result)
         except Exception as exc:
@@ -260,6 +261,7 @@ def create_app(data_dir: Path | None = None):
             "delivery": delivery,
             "seed": body.seed.model_dump() if body.seed else None,
             "roi": cal["points"] if cal else None,
+            "calibration": cal,
             "pipeline": PIPELINE_VERSION,
         }
         jid, created = store.create_job(sid, body.delivery_id, snapshot)
@@ -306,7 +308,7 @@ def create_app(data_dir: Path | None = None):
         for d in state.deliveries:
             xy = (
                 ground_point(state.calibration, d.bounce.x, d.bounce.y)
-                if state.calibration and d.bounce
+                if state.calibration and d.bounce and d.bounce.ground_eligible
                 else ["", ""]
             )
             writer.writerow(
@@ -378,7 +380,13 @@ def create_app(data_dir: Path | None = None):
                 1,
             )
         for index, p in enumerate(analysis["points"]):
-            colour = (80, 115, 225) if p["status"] == "reviewed" else (155, 155, 155)
+            colour = (
+                (80, 115, 225)
+                if p["status"] == "reviewed"
+                else (60, 160, 205)
+                if p["status"] == "estimated"
+                else (155, 155, 155)
+            )
             cv2.circle(image, pixel(p["x"], p["y"]), 8, colour, -1)
             cv2.putText(
                 image,
@@ -398,13 +406,13 @@ def create_app(data_dir: Path | None = None):
             (65, 85, 75),
             1,
         )
-        summary = f"Revision {current['revision']} | Reviewed {analysis['valid']} | Excluded {analysis['excluded']}"
+        summary = f"Rev {current['revision']} | Reviewed {analysis['reviewed']} | Auto {analysis['estimated']} | Excluded {analysis['excluded']}"
         cv2.putText(
             image, summary, (45, height - 65), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (65, 85, 75), 1
         )
         cv2.putText(
             image,
-            "Estimated ground locations. Unreviewed points shown grey.",
+            "Reviewed: orange. Automatic estimates: amber. Unreviewed: grey.",
             (45, height - 35),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.43,

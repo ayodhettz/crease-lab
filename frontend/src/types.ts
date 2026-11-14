@@ -4,7 +4,11 @@ export type TrackPoint = Point & {
   provenance: 'manual' | 'observed' | 'estimated';
   score: number | null;
 };
-export type Bounce = Point & { frame: number; provenance: 'manual' | 'suggested' };
+export type Bounce = Point & {
+  frame: number;
+  provenance: 'manual' | 'suggested';
+  ground_eligible?: boolean;
+};
 export type Calibration = { points: Point[]; width: number; length: number };
 export type Target = { x_min: number; x_max: number; y_min: number; y_max: number };
 export type Delivery = {
@@ -14,7 +18,7 @@ export type Delivery = {
   tag: string;
   start: number;
   end: number;
-  status: 'unreviewed' | 'reviewed' | 'full_toss' | 'unresolved';
+  status: 'unreviewed' | 'reviewed' | 'estimated' | 'full_toss' | 'unresolved';
   bounce: Bounce | null;
   track: TrackPoint[];
 };
@@ -55,5 +59,17 @@ export type Job = {
   status: 'queued' | 'running' | 'completed' | 'failed';
   error: string | null;
   input: { revision: number; delivery: Delivery; pipeline: string };
-  result: { points: TrackPoint[]; message: string; pipeline: string } | null;
+  result: {
+    points: TrackPoint[];
+    message: string;
+    pipeline: string;
+    bounce?: Bounce | null;
+    contact_analysis?: {
+      status: 'candidate' | 'unresolved';
+      reason: string;
+      ground_reason?: string;
+      ground: null | { x: number; y: number; line: string; length: string };
+      camera?: { status: string };
+    };
+  } | null;
 };

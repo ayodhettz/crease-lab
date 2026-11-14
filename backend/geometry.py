@@ -33,7 +33,7 @@ def ground_point(calibration: Calibration, x: float, y: float):
 def analyse(state: SessionState):
     mapped = []
     for d in state.deliveries:
-        if state.calibration and d.bounce:
+        if state.calibration and d.bounce and d.bounce.ground_eligible:
             x, y = ground_point(state.calibration, d.bounce.x, d.bounce.y)
             t = state.target
             mapped.append(
@@ -45,12 +45,14 @@ def analyse(state: SessionState):
                     "in_target": t.x_min <= x <= t.x_max and t.y_min <= y <= t.y_max,
                 }
             )
-    valid = [p for p in mapped if p["status"] == "reviewed"]
+    valid = [p for p in mapped if p["status"] in ("reviewed", "estimated")]
     coords = np.array([[p["x"], p["y"]] for p in valid], dtype=float)
     return {
         "points": mapped,
         "total": len(state.deliveries),
         "valid": len(valid),
+        "estimated": sum(p["status"] == "estimated" for p in valid),
+        "reviewed": sum(p["status"] == "reviewed" for p in valid),
         "excluded": len(state.deliveries) - len(valid),
         "hit_rate": sum(p["in_target"] for p in valid) / len(valid) if valid else None,
         "mean": coords.mean(axis=0).tolist() if len(valid) else None,

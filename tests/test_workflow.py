@@ -139,7 +139,8 @@ def test_tracking_does_not_overwrite_corrections(client, demo):
             break
         time.sleep(0.05)
     assert jobs[0]["status"] == "completed", jobs
-    assert jobs[0]["result"]["bounce"] is None
+    if jobs[0]["result"]["bounce"]:
+        assert jobs[0]["result"]["bounce"]["provenance"] == "suggested"
     assert len(jobs[0]["result"]["points"]) > 0
     current = client.get(f"/api/sessions/{sid}").json()
     assert current["state"] == demo["state"]

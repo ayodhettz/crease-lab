@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { api, json } from './api';
 import { analyse, segments } from './geometry';
+import { applyAnalysis } from './applyAnalysis';
 import { PitchMap } from './PitchMap';
 import type {
   Calibration,
@@ -72,8 +73,12 @@ function App() {
   const [deletePending, setDeletePending] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState('');
   const upload = useRef<HTMLInputElement>(null);
+  const pendingAnalysis = useRef<string | null>(null);
   const image = useRef<HTMLImageElement>(null);
   const selectedDelivery = draft?.deliveries.find((d) => d.id === selected);
+  const imageContact =
+    !!selectedDelivery?.bounce &&
+    (!draft?.calibration || selectedDelivery.bounce.ground_eligible === false);
   const visible =
     draft?.deliveries.filter(
       (d) =>
@@ -104,6 +109,7 @@ function App() {
     setMode('inspect');
     setPlaying(false);
     setJobs([]);
+    pendingAnalysis.current = null;
     setFilter('all');
     setBowlerFilter('all');
     setCalPoints([]);
@@ -200,6 +206,34 @@ function App() {
       clearInterval(timer);
     };
   }, [session?.id]);
+
+  useEffect(() => {
+    const job = jobs.find((j) => j.id === pendingAnalysis.current);
+    if (!job || !['completed', 'failed'].includes(job.status)) return;
+    pendingAnalysis.current = null;
+    if (job.status === 'failed') {
+      setError(job.error || 'Analysis failed');
+      return;
+    }
+    if (!job.result || !draft || !session) return;
+    if (dirty || job.input.revision !== session.revision) {
+      setNotice('Analysis is ready. Use analysis to load it into your edited draft.');
+      return;
+    }
+    setUndo((history) => [...history.slice(-39), clone(draft)]);
+    const next = applyAnalysis(draft, job.delivery_id, job.result);
+    setDraft(next);
+    setDirty(true);
+    if (job.result.bounce) {
+      setFrame(job.result.bounce.frame);
+      setPlaying(false);
+    }
+    setNotice(
+      job.result.bounce
+        ? 'Automatic bounce and track loaded. Save to keep the analysis.'
+        : 'Track loaded; bounce remains unresolved. See the analysis details.',
+    );
+  }, [jobs, session, draft, dirty]);
 
   const seek = useCallback(
     (next: number) => {
@@ -358,7 +392,7 @@ function App() {
     if (!session || !selectedDelivery) return;
     const current = dirty ? await save() : session;
     if (!current) return;
-    setBusy('Starting tracker');
+    setBusy('Starting delivery analysis');
     setError('');
     try {
       const seed = selectedDelivery.track.find((p) => p.frame === frame);
@@ -367,6 +401,7 @@ function App() {
         ...json({ delivery_id: selected, seed: seed || null }),
       });
       setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
+      pendingAnalysis.current = job.id;
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -719,7 +754,11 @@ function App() {
                 <Metric
                   title="DELIVERIES"
                   value={String(visible.length).padStart(2, '0')}
-                  detail={`${analysis?.reviewed.length || 0} reviewed with bounce`}
+                  detail={
+                    draft.calibration
+                      ? `${analysis?.reviewed.length || 0} reviewed / ${analysis?.estimated.length || 0} ground estimates`
+                      : `${visible.filter((d) => d.bounce).length} bounce contacts / ${visible.filter((d) => !d.bounce).length} unresolved`
+                  }
                   icon={<Layers size={17} />}
                 />
                 <Metric
@@ -732,14 +771,22 @@ function App() {
                   title="AVERAGE LENGTH"
                   value={analysis?.mean ? analysis.mean.y.toFixed(2) : '—'}
                   unit={analysis?.mean ? 'm' : ''}
-                  detail="From the batter-end stump line"
+                  detail={
+                    draft.calibration
+                      ? 'From the batter-end stump line'
+                      : 'Ground calibration required for metres'
+                  }
                   icon={<MapPin size={17} />}
                 />
                 <Metric
                   title="LENGTH SPREAD"
                   value={analysis?.spread ? analysis.spread.y.toFixed(2) : '—'}
                   unit={analysis?.spread ? 'm' : ''}
-                  detail="Population standard deviation"
+                  detail={
+                    draft.calibration
+                      ? 'Population standard deviation'
+                      : 'Ground calibration required for metres'
+                  }
                   icon={<Activity size={17} />}
                 />
               </section>
@@ -823,40 +870,44 @@ function App() {
                       {(overlay ? visible : selectedDelivery ? [selectedDelivery] : []).map(
                         (d, i) => (
                           <g key={d.id} opacity={overlay && d.id !== selected ? 0.5 : 1}>
-                            {segments(d.track).map(({ a, b }) => (
-                              <line
-                                key={`${a.frame}-${b.frame}`}
-                                x1={a.x * 1000}
-                                y1={a.y * 1000}
-                                x2={b.x * 1000}
-                                y2={b.y * 1000}
-                                stroke={
-                                  overlay
-                                    ? ['#f4c95f', '#70d9c1', '#f3a47a', '#b0b8ff'][i % 4]
-                                    : '#f3c559'
-                                }
-                                strokeWidth="2"
-                                vectorEffect="non-scaling-stroke"
-                                strokeDasharray={
-                                  a.provenance === 'estimated' || b.provenance === 'estimated'
-                                    ? '4 5'
-                                    : undefined
-                                }
-                              />
-                            ))}
-                            {d.track.map((p) => (
-                              <circle
-                                key={`point-${p.frame}`}
-                                cx={p.x * 1000}
-                                cy={p.y * 1000}
-                                r="2.5"
-                                fill={p.provenance === 'manual' ? '#9addca' : '#f3c559'}
-                              >
-                                <title>
-                                  {p.provenance} / frame {p.frame}
-                                </title>
-                              </circle>
-                            ))}
+                            {segments(d.track.filter((p) => overlay || p.frame <= frame)).map(
+                              ({ a, b }) => (
+                                <line
+                                  key={`${a.frame}-${b.frame}`}
+                                  x1={a.x * 1000}
+                                  y1={a.y * 1000}
+                                  x2={b.x * 1000}
+                                  y2={b.y * 1000}
+                                  stroke={
+                                    overlay
+                                      ? ['#f4c95f', '#70d9c1', '#f3a47a', '#b0b8ff'][i % 4]
+                                      : '#f3c559'
+                                  }
+                                  strokeWidth="2"
+                                  vectorEffect="non-scaling-stroke"
+                                  strokeDasharray={
+                                    a.provenance === 'estimated' || b.provenance === 'estimated'
+                                      ? '4 5'
+                                      : undefined
+                                  }
+                                />
+                              ),
+                            )}
+                            {d.track
+                              .filter((p) => overlay || p.frame <= frame)
+                              .map((p) => (
+                                <circle
+                                  key={`point-${p.frame}`}
+                                  cx={p.x * 1000}
+                                  cy={p.y * 1000}
+                                  r="2.5"
+                                  fill={p.provenance === 'manual' ? '#9addca' : '#f3c559'}
+                                >
+                                  <title>
+                                    {p.provenance} / frame {p.frame}
+                                  </title>
+                                </circle>
+                              ))}
                             {d.track
                               .filter((p) => p.frame === frame)
                               .map((p) => (
@@ -1126,7 +1177,7 @@ function App() {
                           onClick={runTracker}
                           disabled={!!busy || !!activeJob}
                         >
-                          <WandSparkles size={15} /> {activeJob ? 'Tracking…' : 'Suggest track'}
+                          <WandSparkles size={15} /> {activeJob ? 'Analysing…' : 'Analyze delivery'}
                         </button>
                         <select
                           aria-label="Review status"
@@ -1140,6 +1191,9 @@ function App() {
                           }
                         >
                           <option value="unreviewed">Needs review</option>
+                          <option value="estimated" disabled={!selectedDelivery.bounce}>
+                            Automatic estimate
+                          </option>
                           <option value="reviewed" disabled={!selectedDelivery.bounce}>
                             Reviewed bounce
                           </option>
@@ -1178,30 +1232,54 @@ function App() {
                               latestJob.result?.message ||
                               'Processing the saved delivery. Existing annotations are preserved.'}
                           </p>
+                          {latestJob.result?.contact_analysis && (
+                            <div className="contact-result">
+                              <b>
+                                {latestJob.result.bounce
+                                  ? 'Bounce detected automatically'
+                                  : 'Bounce unresolved'}
+                              </b>
+                              {latestJob.result.bounce && (
+                                <button
+                                  className="secondary"
+                                  onClick={() => {
+                                    setFrame(latestJob.result!.bounce!.frame);
+                                    setPlaying(false);
+                                  }}
+                                >
+                                  View contact / frame {latestJob.result.bounce.frame} /{' '}
+                                  {formatTime(latestJob.result.bounce.frame, session.video.fps)}
+                                </button>
+                              )}
+                              {latestJob.result.contact_analysis.ground ? (
+                                <p>
+                                  Estimated line: {latestJob.result.contact_analysis.ground.line}.
+                                  Length: {latestJob.result.contact_analysis.ground.y.toFixed(2)} m
+                                  / {latestJob.result.contact_analysis.ground.length}.
+                                </p>
+                              ) : (
+                                <p>
+                                  {latestJob.result.contact_analysis.ground_reason ||
+                                    latestJob.result.contact_analysis.reason}
+                                </p>
+                              )}
+                            </div>
+                          )}
                           {latestJob.result && (
                             <button
                               className="secondary"
                               onClick={() => {
-                                editDelivery((d) => {
-                                  const manual = d.track.filter((p) => p.provenance === 'manual');
-                                  const manualFrames = new Set(manual.map((p) => p.frame));
-                                  d.track = [
-                                    ...latestJob.result!.points.filter(
-                                      (p) =>
-                                        !manualFrames.has(p.frame) &&
-                                        p.frame >= d.start &&
-                                        p.frame <= d.end,
-                                    ),
-                                    ...manual,
-                                  ].sort((a, b) => a.frame - b.frame);
-                                  d.status = 'unreviewed';
-                                });
+                                edit((s) =>
+                                  Object.assign(s, applyAnalysis(s, selected, latestJob.result!)),
+                                );
+                                if (latestJob.result?.bounce)
+                                  setFrame(latestJob.result.bounce.frame);
                                 setNotice(
                                   'Suggestions loaded as a draft. Manual points were retained. Review before saving.',
                                 );
                               }}
                             >
-                              Use suggestions ({latestJob.result.points.length})
+                              Use analysis ({latestJob.result.points.length} points)
                             </button>
                           )}
                           {latestJob.input.revision !== session.revision && (
@@ -1218,23 +1296,63 @@ function App() {
                 <aside className="map-column">
                   <section className="panel map-panel">
                     <div className="panel-heading">
-                      <h2>Pitch map</h2>
-                      <span className="badge">METRES</span>
+                      <h2>{imageContact ? 'Pitch contact' : 'Pitch map'}</h2>
+                      <span className="badge">
+                        {draft.calibration ? 'METRES' : 'IMAGE POSITION'}
+                      </span>
                     </div>
                     <div className="map-subheading">Where your deliveries land.</div>
-                    <PitchMap
-                      deliveries={visible}
-                      calibration={draft.calibration}
-                      target={draft.target}
-                      selected={selected}
-                      onSelect={selectDelivery}
-                    />
+                    {imageContact && selectedDelivery?.bounce ? (
+                      <div className="contact-preview">
+                        <div
+                          style={{
+                            position: 'relative',
+                            aspectRatio: `${session.video.width}/${session.video.height}`,
+                          }}
+                        >
+                          <img
+                            src={`/api/sessions/${session.id}/frame/${selectedDelivery.bounce.frame}`}
+                            alt="Automatically located pitch contact"
+                          />
+                          <svg viewBox="0 0 1000 1000" preserveAspectRatio="none">
+                            <circle
+                              cx={selectedDelivery.bounce.x * 1000}
+                              cy={selectedDelivery.bounce.y * 1000}
+                              r="20"
+                              fill="#ff9b4c55"
+                              stroke="#ffb65c"
+                              strokeWidth="2"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                            <path
+                              d={`M${selectedDelivery.bounce.x * 1000 - 30},${selectedDelivery.bounce.y * 1000}h60 M${selectedDelivery.bounce.x * 1000},${selectedDelivery.bounce.y * 1000 - 30}v60`}
+                              stroke="white"
+                              strokeWidth="1.5"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </svg>
+                        </div>
+                        <b>Estimated ground contact / F{selectedDelivery.bounce.frame}</b>
+                        <p>The pin marks where the ball meets the pitch in this camera view.</p>
+                        <small>
+                          Metre-based line and length need a fixed camera and known ground geometry.
+                        </small>
+                      </div>
+                    ) : (
+                      <PitchMap
+                        deliveries={visible}
+                        calibration={draft.calibration}
+                        target={draft.target}
+                        selected={selected}
+                        onSelect={selectDelivery}
+                      />
+                    )}
                     <div className="map-legend">
                       <span>
                         <i className="legend-bounce" /> Reviewed
                       </span>
                       <span>
-                        <i className="legend-bounce grey" /> Unreviewed
+                        <i className="legend-bounce grey" /> Unreviewed / automatic
                       </span>
                       <span>
                         <i className="target-icon" /> Target
@@ -1244,41 +1362,43 @@ function App() {
                       Ground locations are estimates. Airborne paths are shown only on the video.
                     </div>
                   </section>
-                  <section className="panel target-panel">
-                    <div className="panel-heading">
-                      <h2>
-                        <Crosshair size={15} /> Target zone
-                      </h2>
-                    </div>
-                    <div className="target-fields">
-                      {(['x_min', 'x_max', 'y_min', 'y_max'] as const).map((k) => (
-                        <label key={k}>
-                          {
+                  {draft.calibration && (
+                    <section className="panel target-panel">
+                      <div className="panel-heading">
+                        <h2>
+                          <Crosshair size={15} /> Target zone
+                        </h2>
+                      </div>
+                      <div className="target-fields">
+                        {(['x_min', 'x_max', 'y_min', 'y_max'] as const).map((k) => (
+                          <label key={k}>
                             {
-                              x_min: 'Left (m)',
-                              x_max: 'Right (m)',
-                              y_min: 'Short edge (m)',
-                              y_max: 'Long edge (m)',
-                            }[k]
-                          }
-                          <input
-                            type="number"
-                            step="0.1"
-                            value={draft.target[k]}
-                            onChange={(e) =>
-                              edit((s) => {
-                                s.target[k] = Number(e.target.value);
-                              })
+                              {
+                                x_min: 'Left (m)',
+                                x_max: 'Right (m)',
+                                y_min: 'Short edge (m)',
+                                y_max: 'Long edge (m)',
+                              }[k]
                             }
-                          />
-                        </label>
-                      ))}
-                    </div>
-                    <small>
-                      Lateral: negative left, positive right, facing the batter. Length increases
-                      toward the bowler.
-                    </small>
-                  </section>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={draft.target[k]}
+                              onChange={(e) =>
+                                edit((s) => {
+                                  s.target[k] = Number(e.target.value);
+                                })
+                              }
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <small>
+                        Lateral: negative left, positive right, facing the batter. Length increases
+                        toward the bowler.
+                      </small>
+                    </section>
+                  )}
                 </aside>
               </div>
               <section className="panel deliveries-panel">
@@ -1308,6 +1428,7 @@ function App() {
                       <option value="all">All statuses</option>
                       <option value="reviewed">Reviewed</option>
                       <option value="unreviewed">Needs review</option>
+                      <option value="estimated">Automatic estimates</option>
                       <option value="full_toss">Full toss</option>
                       <option value="unresolved">Unresolved</option>
                     </select>
@@ -1361,6 +1482,7 @@ function App() {
                                   {
                                     reviewed: 'Reviewed',
                                     unreviewed: 'Needs review',
+                                    estimated: 'Automatic estimate',
                                     full_toss: 'Full toss',
                                     unresolved: 'Unresolved',
                                   }[d.status]
@@ -1401,7 +1523,7 @@ function App() {
                 <div className="table-footer">
                   <span>
                     {visible.length} shown / {draft.deliveries.length} total <span>·</span>{' '}
-                    Statistics use reviewed bounces only
+                    Statistics include reviewed and automatic ground estimates
                   </span>
                   <div>
                     <a

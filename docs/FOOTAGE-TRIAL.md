@@ -24,3 +24,11 @@ Approximate ball centres were visually identified on 14 sampled Replay A frames,
 This clip and its observations informed development. This is not a held-out benchmark, and the sparse reference centres are approximate. It does not establish performance on normal-speed distant balls, other colours, other cameras, or net practice. Raw original job results and saved reference revisions remain separate from updated suggestions in the local app.
 
 Two synthetic regression cases test moving background/distractor rejection and long-occlusion behaviour. The next useful validation is an independently annotated fixed-camera net recording.
+
+## Automatic contact follow-up
+
+After the user clarified that automatic bounce and pitch analysis were expected, the pipeline was extended to `contact-analysis-0.3.0`. A fresh run on Replay A with no supplied ball seed or reference points automatically seeds at frame 722 and identifies a contact candidate at frame 761 (30.44 seconds). The approximate ground contact is image x=0.5528, y=0.7904, including an estimated 32.9-pixel ball radius. The contact image was visually checked against the ball/ground transition.
+
+This is an automatic event candidate on one development clip. The opening live interval and Replay B remain unresolved. Background motion is detected but compensation has insufficient support on Replay A; metre mapping is therefore ineligible. The UI shows the actual pitch-contact image and pin instead of a metre map for that view.
+
+For a fixed calibrated camera, contact mapping and default line/length classification now run automatically. A synthetic end-to-end browser test verifies this complete workflow with no manual ball or bounce marks. Automatic calibration from arbitrary broadcast views is still outstanding; the uploaded compilation has no validated metric pitch map.

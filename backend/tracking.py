@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-PIPELINE_VERSION = "motion-appearance-0.2.0"
+PIPELINE_VERSION = "contact-analysis-0.3.0"
 
 
 class BallAppearance:
@@ -70,7 +70,12 @@ class BallAppearance:
         return candidates
 
 
-def track_video(path, start, end, seed=None, roi=None):
+def track_video(path, start, end, seed=None, roi=None, calibration=None):
+    from .ball_analysis import analyse_contact, find_coloured_seed
+
+    automatic_seed = seed is None
+    if seed is None:
+        seed = find_coloured_seed(path, start, end)
     cap = cv2.VideoCapture(str(path))
     points = []
     previous = None
@@ -105,7 +110,7 @@ def track_video(path, start, end, seed=None, roi=None):
                         "frame": frame,
                         "x": seed["x"],
                         "y": seed["y"],
-                        "provenance": "manual",
+                        "provenance": "observed" if automatic_seed else "manual",
                         "score": None,
                     }
                 )
@@ -193,16 +198,29 @@ def track_video(path, start, end, seed=None, roi=None):
             previous = grey
     finally:
         cap.release()
+    contact = (
+        analyse_contact(path, points, width, height, calibration)
+        if appearance and appearance.active
+        else {
+            "bounce": None,
+            "contact_analysis": {
+                "status": "unresolved",
+                "ground": None,
+                "reason": "The motion-only track is not sufficient to locate a bounce. Mark a visible ball and analyse again.",
+            },
+        }
+    )
     return {
         "pipeline": PIPELINE_VERSION,
         "points": points,
-        "bounce": None,
+        **contact,
+        "automatic_seed": automatic_seed and seed is not None,
         "method": "seeded-appearance" if appearance and appearance.active else "motion",
         "message": (
             "Experimental appearance-assisted candidates. "
             if appearance and appearance.active
             else "Experimental motion candidates. "
         )
-        + "Inspect the trail and mark ground contact manually. "
-        "No automatic bounce or 3D accuracy is claimed.",
+        + ("Bounce candidate detected. " if contact["bounce"] else "Bounce unresolved. ")
+        + "Automatic estimates remain separate from reviewed measurements.",
     }

@@ -48,7 +48,7 @@ export function analyse(deliveries: Delivery[], cal: Calibration | null, target:
     try {
       const h = homography(cal);
       for (const d of deliveries)
-        if (d.bounce) {
+        if (d.bounce && d.bounce.ground_eligible !== false) {
           const p = project(h, d.bounce);
           if (Number.isFinite(p.x) && Number.isFinite(p.y))
             points.push({
@@ -66,21 +66,24 @@ export function analyse(deliveries: Delivery[], cal: Calibration | null, target:
     }
   }
   const reviewed = points.filter((p) => p.delivery.status === 'reviewed');
-  const n = reviewed.length;
+  const estimated = points.filter((p) => p.delivery.status === 'estimated');
+  const included = [...reviewed, ...estimated];
+  const n = included.length;
   const mean = n
-    ? { x: reviewed.reduce((s, p) => s + p.x, 0) / n, y: reviewed.reduce((s, p) => s + p.y, 0) / n }
+    ? { x: included.reduce((s, p) => s + p.x, 0) / n, y: included.reduce((s, p) => s + p.y, 0) / n }
     : null;
   const spread = mean
     ? {
-        x: Math.sqrt(reviewed.reduce((s, p) => s + (p.x - mean.x) ** 2, 0) / n),
-        y: Math.sqrt(reviewed.reduce((s, p) => s + (p.y - mean.y) ** 2, 0) / n),
+        x: Math.sqrt(included.reduce((s, p) => s + (p.x - mean.x) ** 2, 0) / n),
+        y: Math.sqrt(included.reduce((s, p) => s + (p.y - mean.y) ** 2, 0) / n),
       }
     : null;
   return {
     points,
     reviewed,
+    estimated,
     excluded: deliveries.length - n,
-    hitRate: n ? reviewed.filter((p) => p.hit).length / n : null,
+    hitRate: n ? included.filter((p) => p.hit).length / n : null,
     mean,
     spread,
   };

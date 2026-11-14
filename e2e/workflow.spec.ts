@@ -41,14 +41,15 @@ test('demo, manual correction, persistence, map, exports, and tracking', async (
   ]);
   expect(pngDownload.suggestedFilename()).toBe('crease-lab-pitch-map.png');
 
-  await page.getByRole('button', { name: 'Suggest track' }).click();
+  await page.getByRole('button', { name: 'Analyze delivery' }).click();
   await expect(page.locator('.job-result')).toContainText('COMPLETED');
   await expect(page.locator('.job-result')).toContainText(/Experimental (motion|appearance)/);
   await expect(page.getByLabel('Delivery label', { exact: true })).toHaveValue(
     'Corrected first ball',
   );
-  // Exportable saved state is unaffected by generating suggestions.
-  await expect(page.getByRole('button', { name: 'Saved', exact: true })).toBeDisabled();
+  // Analysis loads a draft automatically while preserving the reviewed manual contact.
+  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('Review status', { exact: true })).toHaveValue('reviewed');
 });
 
 test('import, calibrate, create delivery, mark contact, and filter', async ({ page, request }) => {
@@ -97,4 +98,36 @@ test('mobile workspace fits the viewport', async ({ page, request }) => {
   await expect(page.getByRole('heading', { name: 'Evening nets / demo' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await request.delete(`/api/sessions/${demo.id}`);
+});
+
+test('automatic analysis finds a bounce and maps it without manual ball or bounce marks', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles('e2e/fixtures/bounce.mp4');
+  await expect(page.getByRole('heading', { name: 'bounce', exact: true })).toBeVisible();
+  await expect(page.getByRole('img', { name: /Recording frame/ })).toHaveJSProperty(
+    'complete',
+    true,
+  );
+  await page.getByRole('button', { name: 'Calibrate', exact: true }).click();
+  const stage = page.getByLabel('Video annotation surface');
+  const box = (await stage.boundingBox())!;
+  for (const [x, y] of [
+    [0.1, 0.1],
+    [0.9, 0.1],
+    [0.9, 0.9],
+    [0.1, 0.9],
+  ])
+    await stage.click({ position: { x: box.width * x, y: box.height * y } });
+  await page.getByRole('button', { name: 'Apply calibration' }).click();
+  await page.getByRole('button', { name: 'Add delivery here' }).click();
+  await page.getByRole('button', { name: 'Analyze delivery' }).click();
+  await expect(page.locator('.contact-result')).toContainText('Bounce detected automatically');
+  await expect(page.getByLabel('Review status', { exact: true })).toHaveValue('estimated');
+  await expect(page.getByRole('img', { name: 'Recording frame 18', exact: true })).toBeVisible();
+  await expect(page.locator('.contact-result')).toContainText('Estimated line:');
+  await expect(page.locator('.metric').first()).toContainText('1 ground estimates');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('status')).toContainText('Saved revision');
 });

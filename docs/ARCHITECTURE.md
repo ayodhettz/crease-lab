@@ -43,13 +43,17 @@ This is restart recovery, not distributed scheduling. Cancellation, heartbeat-ba
 
 ## Analysis contract
 
-Statistics include only deliveries explicitly marked reviewed with a mapped bounce. Other deliveries are counted as exclusions. Standard deviations are population standard deviations; one reviewed point therefore has a spread of zero and is not evidence of established consistency. Filters affect displayed metrics/map/overlays; exports contain the whole saved session.
+Statistics include reviewed contacts and explicitly labelled automatic estimates with eligible ground mappings. Their counts remain separate. Camera-ineligible contacts remain image-space locations and are excluded from metric statistics. Other unresolved results are also excluded. Standard deviations are population standard deviations; one point has zero spread and does not establish consistency. Filters affect displayed metrics/map/overlays; exports contain the whole saved session.
 
 ## Performance and future extension
 
 Frame requests decode from a fresh capture and seek by nominal frame index. This is simple and works for manual review but may be slow for long-GOP/4K recordings. Thumbnail/frame caches and timestamp-aware decoding should be added after profiling. Playback is a sampled preview, not a high-FPS player.
 
-The detector is deliberately replaceable. With a saturated-colour manual seed, an HSV appearance model selects nearby size-compatible components and estimates their centres, using a short motion predictor to resolve choices. Ambiguous/missing observations are left missing; a long gap ends the seeded track. Low-saturation seeds and unseeded runs retain the motion baseline. Scores (0.35 motion, 0.55 appearance) are heuristics, not probabilities. The pipeline version is stored per run. It records no interpolated points and makes no bounce, speed, or 3D predictions. Add a trained detector only after a representative real-footage benchmark identifies the biggest failures.
+The detector is replaceable. It can automatically seed from an isolated moving red component or use a manual saturated-colour seed. An HSV appearance model and local motion prediction select compatible centres; ambiguity and long gaps stop the track. Scores are heuristics, not probabilities.
+
+`contact-analysis-0.3.0` attempts background-flow similarity compensation, then compares smooth quadratic motion against a continuous fit with a velocity discontinuity. Smooth trajectory apexes are rejected. A supported kink is a contact candidate, not a verified bounce. The approximate ball radius converts centre coordinates into a bottom/contact pixel. Fixed-camera calibration maps eligible contacts to ground coordinates; detected camera motion blocks this mapping. Line/length categories use provisional distance zones (under 2 m yorker, under 4 m full, under 7 m good length, otherwise short).
+
+One-click analysis loads a new draft only if its input revision still matches and no intervening draft edits exist. Manual track points, manual bounces, and full-toss decisions are preserved. New contacts use `estimated`, never `reviewed`. Raw predictions remain immutable on the processing job.
 
 ## Evidence
 

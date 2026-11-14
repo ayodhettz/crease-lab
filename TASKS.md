@@ -21,6 +21,10 @@ Version-tag delivery produces a draft release after its own checks and smoke tes
 
 ## After the first increment
 
+- [x] Add automatic bounce candidates, contact-image localisation, calibrated line/length, and one-click draft loading with correction preservation.
+- [x] Test automatic seed -> bounce -> ground map end to end without manually marking the ball or bounce.
+- [ ] Establish reliable automatic ground calibration and broader broadcast coverage; only one of the three supplied intervals currently yields a supported bounce.
+
 - [x] Import the supplied broadcast compilation locally, curate three short intervals, and retain separate manual reference points and automatic results.
 - [x] Add seeded colour assistance after observing motion-only centre errors; cover moving-background and occlusion behaviour with regression tests.
 - [ ] Validate on held-out fixed-camera net footage. The supplied broadcast replay is a development example, not that benchmark.
