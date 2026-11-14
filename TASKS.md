@@ -15,7 +15,9 @@ Working order: finish a reliable manual analysis loop before introducing automat
 
 Completed 14 November 2026. See `docs/VALIDATION.md` for evidence and limitations. Repository: [ayodhettz/crease-lab](https://github.com/ayodhettz/crease-lab) (private).
 
-9. [ ] Push the initial version and verify GitHub CI and a draft-release delivery run.
+9. [x] Create the private GitHub repository, push the initial version, and verify Windows/Linux/browser CI. [Initial passing run](https://github.com/ayodhettz/crease-lab/actions/runs/43574888901).
+
+Version-tag delivery produces a draft release after its own checks and smoke test; see the repository's Actions and Releases pages for delivery results.
 
 ## After the first increment
 

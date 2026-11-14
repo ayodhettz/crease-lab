@@ -15,6 +15,8 @@ Date: 14 November 2026. Platform: Windows, Python 3.12.14, Node.js 24.22.0.
 
 ## Observations
 
+The first remote [Checks and build run](https://github.com/ayodhettz/crease-lab/actions/runs/43574888901) passed on Windows and Linux, including the frontend/browser job. The initial action versions emitted a runner deprecation warning; subsequent workflow configuration pins verified current official release commits. Check the latest Actions run for the pinned configuration and versioned delivery results.
+
 The Python test suite reports a Starlette deprecation warning about the existing `httpx` TestClient integration. All tests pass; this warning concerns a future test dependency migration, not production playback or processing.
 
 The first sandboxed API test attempt could not initialise its local socket pair; rerunning with local-network access resolved it. No application workaround was added for this environment restriction.

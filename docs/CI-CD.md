@@ -21,7 +21,7 @@ Push the project directory as the repository root to the intended GitHub reposit
 
 For a new release, update `package.json`, its lockfile, `pyproject.toml`, API version, and release notes consistently, then push a matching version tag after review. Example first version: `v0.1.0`. Do not reuse an existing published tag.
 
-The pipeline uses major-version official GitHub actions; a future hardening step can pin reviewed action SHAs. Dependabot is configured for npm, pip, and GitHub Actions updates. Local `npm audit` is a point-in-time check, not a permanent security guarantee.
+The pipeline pins official GitHub actions to verified release commit SHAs, with version comments. Dependabot is configured for npm, pip, and GitHub Actions updates. Local `npm audit` is a point-in-time check, not a permanent security guarantee.
 
 ## What is and is not verified
 
