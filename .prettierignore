@@ -1,0 +1,9 @@
+node_modules
+.venv
+frontend/dist
+data
+release
+test-results
+playwright-report
+package-lock.json
+docs/SRS.md
