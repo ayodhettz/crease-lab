@@ -27,9 +27,11 @@ export function applyAnalysis(
   if (
     !result.bounce &&
     result.contact_analysis?.status === 'unresolved' &&
-    !d.bounce &&
+    d.bounce?.provenance !== 'manual' &&
     d.status !== 'full_toss'
-  )
+  ) {
+    d.bounce = null;
     d.status = 'unresolved';
+  }
   return next;
 }

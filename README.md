@@ -101,3 +101,5 @@ The browser suite starts an isolated server and temporary data directory. Port 8
 GitHub Actions workflows are in `.github/workflows/`. CI runs Python checks on Windows/Linux, frontend checks/build, a dependency audit, and Chromium end-to-end tests. A pushed `vX.Y.Z` tag runs CI again, checks that the tag matches `package.json`, packages the built app, uploads artifacts, and creates a **draft** GitHub release. Publishing the draft is a separate review step.
 
 Source repository: [ayodhettz/crease-lab](https://github.com/ayodhettz/crease-lab) (private). Current pipeline results are available under [GitHub Actions](https://github.com/ayodhettz/crease-lab/actions). No hosting service is required for the local application.
+
+Tracking changes, measured synthetic results and remaining limitations: [Tracking reliability](docs/TRACKING-RELIABILITY.md).

@@ -21,6 +21,7 @@ def test_bounce_discontinuity_but_not_smooth_apex():
     ]
     assert bounce_candidate(smooth, 320, 240) is None
     assert bounce_candidate(points[:10], 320, 240) is None
+    assert bounce_candidate([p for p in points if p["frame"] != 18], 320, 240) is None
 
 
 def test_automatic_seed_contact_and_calibrated_pitch_mapping(tmp_path):

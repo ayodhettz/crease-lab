@@ -260,7 +260,8 @@ def create_app(data_dir: Path | None = None):
             "revision": current["revision"],
             "delivery": delivery,
             "seed": body.seed.model_dump() if body.seed else None,
-            "roi": cal["points"] if cal else None,
+            # Ground-plane calibration does not bound the ball's airborne image path.
+            "roi": None,
             "calibration": cal,
             "pipeline": PIPELINE_VERSION,
         }

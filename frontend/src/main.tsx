@@ -1232,6 +1232,17 @@ function App() {
                               latestJob.result?.message ||
                               'Processing the saved delivery. Existing annotations are preserved.'}
                           </p>
+                          {latestJob.result?.diagnostics && (
+                            <p>
+                              Observed frames: {latestJob.result.diagnostics.observed_frames}.
+                              Interval coverage:{' '}
+                              {Math.round(latestJob.result.diagnostics.coverage * 100)}%. Longest
+                              detection gap: {latestJob.result.diagnostics.longest_gap} frames. Stop
+                              reason:{' '}
+                              {latestJob.result.diagnostics.stop_reason.replaceAll('-', ' ')}.
+                              Coverage describes available observations, not tracking accuracy.
+                            </p>
+                          )}
                           {latestJob.result?.contact_analysis && (
                             <div className="contact-result">
                               <b>

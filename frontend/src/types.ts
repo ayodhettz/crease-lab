@@ -63,6 +63,14 @@ export type Job = {
     points: TrackPoint[];
     message: string;
     pipeline: string;
+    diagnostics?: {
+      observed_frames: number;
+      coverage: number;
+      longest_gap: number;
+      stop_reason: string;
+      ball_colour: string | null;
+      score_meaning: string;
+    };
     bounce?: Bounce | null;
     contact_analysis?: {
       status: 'candidate' | 'unresolved';

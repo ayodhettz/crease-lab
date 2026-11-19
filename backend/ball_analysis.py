@@ -4,74 +4,116 @@ import cv2
 import numpy as np
 
 
-def find_coloured_seed(path, start, end):
-    """Look for an isolated moving red ball over three frames; reject white-shirt logos."""
+def find_coloured_seed(path, start, end, roi=None):
+    """Acquire compact red/white objects with sustained motion relative to background.
+
+    Scan the whole requested interval, keeping only five observations per candidate.
+    Ambiguous acquisitions remain unresolved rather than following arbitrary motion.
+    """
     cap = cv2.VideoCapture(str(path))
     cap.set(cv2.CAP_PROP_POS_FRAMES, start)
-    previous = []
+    previous, old_grey = [], None
     try:
-        for frame in range(start, min(end + 1, start + 80)):
+        for frame in range(start, end + 1):
             ok, image = cap.read()
             if not ok:
                 break
+            height, width = image.shape[:2]
+            grey = cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (width // 2, height // 2))
+            shift = np.zeros(2)
+            if old_grey is not None:
+                features = cv2.goodFeaturesToTrack(old_grey, 100, 0.02, 8)
+                if features is not None and len(features) >= 12:
+                    moved, valid, _ = cv2.calcOpticalFlowPyrLK(old_grey, grey, features, None)
+                    if moved is not None:
+                        good = valid.reshape(-1) == 1
+                        flow = (moved - features).reshape(-1, 2)[good] * 2
+                        if len(flow) >= 12:
+                            shift = np.median(flow, axis=0)
+            old_grey = grey
             hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-            mask = (
+            red = (
                 ((hsv[:, :, 0] <= 10) | (hsv[:, :, 0] >= 160))
                 & (hsv[:, :, 1] >= 55)
                 & (hsv[:, :, 2] >= 25)
-            ).astype(np.uint8) * 255
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            height, width = image.shape[:2]
+            )
+            white = (hsv[:, :, 1] < 65) & (hsv[:, :, 2] > 165)
+            region = np.full((height, width), 255, np.uint8)
+            if roi:
+                region[:] = 0
+                cv2.fillConvexPoly(
+                    region,
+                    np.array([[p["x"] * width, p["y"] * height] for p in roi], np.int32),
+                    255,
+                )
             current = []
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                perimeter = cv2.arcLength(contour, True)
-                if not 8 <= area <= width * height * 0.008 or not perimeter:
-                    continue
-                if 4 * np.pi * area / (perimeter * perimeter) < 0.5:
-                    continue
-                x, y, w, h = cv2.boundingRect(contour)
-                centre = np.array([x + w / 2, y + h / 2])
-                if (
-                    max(w, h) / max(1, min(w, h)) > 2
-                    or not 0.12 * width < centre[0] < 0.9 * width
-                    or not 0.13 * height < centre[1] < 0.92 * height
-                ):
-                    continue
-                padding = max(4, round(max(w, h) * 0.5))
-                ring = hsv[
-                    max(0, y - padding) : min(height, y + h + padding),
-                    max(0, x - padding) : min(width, x + w + padding),
-                ]
-                if ((ring[:, :, 1] < 45) & (ring[:, :, 2] > 160)).mean() > 0.22:
-                    continue
-                chain = []
-                for old in previous:
-                    distance = np.linalg.norm(centre - old["centre"])
+            for colour, raw in [("red", red), ("white", white)]:
+                mask = raw.astype(np.uint8) * 255 & region
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                for contour in contours:
+                    area = cv2.contourArea(contour)
+                    x, y, w, h = cv2.boundingRect(contour)
+                    limit = 0.008 if colour == "red" else 0.003
+                    perimeter = cv2.arcLength(contour, True)
+                    if not 6 <= area <= width * height * limit or max(w, h) / max(1, min(w, h)) > 3:
+                        continue
+                    if not perimeter or 4 * np.pi * area / perimeter**2 < 0.5:
+                        continue
+                    padding = max(4, round(max(w, h) * 0.5))
+                    ring = hsv[
+                        max(0, y - padding) : min(height, y + h + padding),
+                        max(0, x - padding) : min(width, x + w + padding),
+                    ]
                     if (
-                        0.3 * old["area"] <= area <= 3 * old["area"]
-                        and distance <= min(width, height) * 0.12
+                        colour == "red"
+                        and ((ring[:, :, 1] < 45) & (ring[:, :, 2] > 160)).mean() > 0.22
                     ):
-                        chain = max(chain, old["chain"] + [old["centre"]], key=len)
-                current.append({"centre": centre, "area": area, "chain": chain})
+                        continue
+                    centre = np.array([x + w / 2, y + h / 2])
+                    matches = [
+                        p
+                        for p in previous
+                        if p["colour"] == colour
+                        and 0.45 * p["area"] <= area <= 2.2 * p["area"]
+                        and np.linalg.norm(centre - p["centre"] - shift) < min(width, height) * 0.12
+                    ]
+                    old = (
+                        min(matches, key=lambda p: np.linalg.norm(centre - p["centre"] - shift))
+                        if matches
+                        else None
+                    )
+                    history = (old["history"] if old else []) + [(frame, centre)]
+                    speeds = (old["speeds"] if old else []) + [
+                        float(np.linalg.norm(centre - old["centre"] - shift)) if old else 0
+                    ]
+                    current.append(
+                        dict(
+                            colour=colour,
+                            area=area,
+                            centre=centre,
+                            history=history[-5:],
+                            speeds=speeds[-4:],
+                        )
+                    )
             candidates = [
                 p
                 for p in current
-                if len(p["chain"]) >= 2 and np.linalg.norm(p["centre"] - p["chain"][0]) >= 4
+                if len(p["history"]) == 5
+                and np.median(p["speeds"]) > 1.5
+                and np.linalg.norm(p["history"][-1][1] - p["history"][0][1]) > 6
             ]
-            candidates.sort(key=lambda c: c["area"], reverse=True)
+            candidates.sort(key=lambda p: p["area"])
             if candidates and (
-                len(candidates) == 1 or candidates[0]["area"] > 3 * candidates[1]["area"]
+                len(candidates) == 1 or candidates[1]["area"] > 2 * candidates[0]["area"]
             ):
-                p = candidates[0]["centre"]
-                return {
-                    "frame": frame,
-                    "x": float(p[0] / width),
-                    "y": float(p[1] / height),
-                    "provenance": "observed",
-                    "score": None,
-                }
+                f, p = candidates[0]["history"][0]
+                return dict(
+                    frame=f,
+                    x=float(p[0] / width),
+                    y=float(p[1] / height),
+                    provenance="observed",
+                    score=None,
+                )
             previous = current
     finally:
         cap.release()
@@ -91,6 +133,7 @@ def compensate_camera(path, points, width, height):
     stable = []
     fits = 0
     movements = []
+    max_drift = 0.0
     try:
         for f in range(start, end + 1):
             ok, image = cap.read()
@@ -128,6 +171,11 @@ def compensate_camera(path, points, width, height):
                                 if 0.92 < scale < 1.08 and shift < 100:
                                     step = np.vstack([affine, [0, 0, 1]])
                                     cumulative = step @ cumulative
+                                    centre = np.array([width / 2, height / 2, 1])
+                                    max_drift = max(
+                                        max_drift,
+                                        float(np.linalg.norm((cumulative @ centre - centre)[:2])),
+                                    )
                                     fits += 1
                                     movements.append(float(shift))
             p = by_frame.get(f)
@@ -148,6 +196,7 @@ def compensate_camera(path, points, width, height):
         "frames": fits,
         "total": total,
         "mean_shift_px": round(float(np.mean(movements)), 2) if movements else 0,
+        "max_drift_px": round(max_drift, 2),
     }
 
 
@@ -161,7 +210,7 @@ def bounce_candidate(points, width, height):
     candidates = []
     for index in range(6, len(ordered) - 6):
         lo, hi = index - 6, index + 7
-        if np.max(np.diff(frames[lo:hi])) > 2:
+        if np.max(np.diff(frames[lo:hi])) > 1:
             continue
         t = frames[lo:hi] - frames[index]
         values = coords[lo:hi]
@@ -233,7 +282,11 @@ def analyse_contact(path, points, width, height, calibration=None):
         "provenance": "suggested",
     }
     ground = None
-    moving = camera.get("mean_shift_px", 0) > 1
+    moving = (
+        camera.get("status") != "compensated"
+        or camera.get("mean_shift_px", 0) > 1
+        or camera.get("max_drift_px", 0) > 4
+    )
     contact["ground_eligible"] = not moving
     if calibration and not moving:
         from .geometry import ground_point
@@ -266,7 +319,7 @@ def analyse_contact(path, points, width, height, calibration=None):
             "ground_reason": None
             if ground
             else (
-                "Camera movement invalidates the fixed ground calibration for this interval."
+                "Camera movement or insufficient background evidence prevents reliable fixed-ground mapping."
                 if moving and calibration
                 else "This camera view has no ground calibration. Contact is located on the source pitch image; metre-based line and length are unavailable."
             ),

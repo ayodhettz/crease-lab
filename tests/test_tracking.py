@@ -1,7 +1,9 @@
 import cv2
 import numpy as np
+import pytest
 
 from backend.tracking import track_video
+from scripts.tracking_benchmark import evaluate, generate, scenarios
 
 
 def make_moving_scene(path, hidden=()):
@@ -37,3 +39,32 @@ def test_appearance_stays_missing_instead_of_following_distractor(tmp_path):
     result = track_video(path, 0, 19, {"frame": 0, "x": 55 / 320, "y": 80 / 240})
     assert [p["frame"] for p in result["points"]] == list(range(5))
     assert result["bounce"] is None
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "white_auto",
+        "small_fast_blurred",
+        "short_occlusion",
+        "shrinking_ball",
+        "late_entry",
+        "empty_moving_players",
+        "outside_region",
+        "camera_cut",
+        "panning_empty_scene",
+    ],
+)
+def test_tracking_challenges(tmp_path, name):
+    case = next(c for c in scenarios() if c["name"] == name)
+    path = tmp_path / "challenge.mp4"
+    truth, seed, roi = generate(path, case)
+    result = track_video(path, 0, len(truth) - 1, seed=seed, roi=roi)
+    metrics = evaluate(truth, result["points"], seed)
+    assert metrics["false_observations"] == 0
+    if metrics["visible_frames"]:
+        assert metrics["recall"] >= 0.95
+    if name == "camera_cut":
+        assert result["diagnostics"]["stop_reason"] == "camera-cut"
+    if name == "short_occlusion":
+        assert not {14, 15} & {p["frame"] for p in result["points"]}

@@ -59,3 +59,14 @@ it('preserves manually reviewed contact and excludes camera-ineligible ground co
   });
   expect(analyse(next.deliveries, next.calibration, next.target).points).toHaveLength(0);
 });
+
+it('clears an obsolete automatic bounce when a new analysis is unresolved', () => {
+  const estimated = applyAnalysis(state, 'd', result);
+  const next = applyAnalysis(estimated, 'd', {
+    ...result,
+    bounce: null,
+    contact_analysis: { status: 'unresolved', reason: 'Insufficient observations', ground: null },
+  });
+  expect(next.deliveries[0].bounce).toBeNull();
+  expect(next.deliveries[0].status).toBe('unresolved');
+});

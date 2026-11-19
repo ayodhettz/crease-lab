@@ -1,33 +1,34 @@
-"""Experimental static-camera motion baseline. Produces suggestions, never approvals."""
+"""Appearance and temporal association tracker. Produces suggestions, never approvals."""
 
 import cv2
 import numpy as np
 
-PIPELINE_VERSION = "contact-analysis-0.3.0"
+PIPELINE_VERSION = "contact-analysis-0.4.0"
 
 
 class BallAppearance:
-    """Small saturated-colour model learned from a user seed, not a global red-ball rule."""
+    """Compact colour or white-ball appearance learned from a visible seed."""
 
     def __init__(self, image, centre):
         x, y = np.round(centre).astype(int)
         height, width = image.shape[:2]
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        patch = hsv[max(0, y - 4) : min(height, y + 5), max(0, x - 4) : min(width, x + 5)]
+        patch = hsv[max(0, y - 1) : min(height, y + 2), max(0, x - 1) : min(width, x + 2)]
         pixels = patch.reshape(-1, 3)
         saturated = pixels[pixels[:, 1] >= 70]
-        self.active = len(saturated) >= max(6, len(pixels) // 2)
+        self.white = bool(np.median(pixels[:, 1]) < 65 and np.median(pixels[:, 2]) > 165)
+        self.active = self.white or len(saturated) >= max(3, len(pixels) // 2)
         self.area = None
         if not self.active:
             return
-        angles = saturated[:, 0].astype(float) / 180 * 2 * np.pi
+        angles = (pixels if self.white else saturated)[:, 0].astype(float) / 180 * 2 * np.pi
         self.hue = float(
             np.arctan2(np.sin(angles).mean(), np.cos(angles).mean())
             % (2 * np.pi)
             * 180
             / (2 * np.pi)
         )
-        self.min_saturation = max(55, float(np.median(saturated[:, 1])) * 0.55)
+        self.min_saturation = max(55, float(np.median(pixels[:, 1])) * 0.55)
         matches = self.candidates(image)
         if matches:
             chosen = min(matches, key=lambda c: np.linalg.norm(c[0] - centre))
@@ -45,15 +46,17 @@ class BallAppearance:
         mask = (
             (hue_distance <= 14) & (hsv[:, :, 1] >= self.min_saturation) & (hsv[:, :, 2] >= 20)
         ).astype(np.uint8) * 255
+        if self.white:
+            mask = ((hsv[:, :, 1] < 65) & (hsv[:, :, 2] > 165)).astype(np.uint8) * 255
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         candidates = []
         for contour in contours:
             area = cv2.contourArea(contour)
             _, _, w, h = cv2.boundingRect(contour)
-            if area < 6 or area > image.shape[0] * image.shape[1] * 0.015:
+            if area < 2 or area > image.shape[0] * image.shape[1] * 0.015:
                 continue
-            if max(w, h) / max(1, min(w, h)) > 2.5:
+            if max(w, h) / max(1, min(w, h)) > 5:
                 continue
             if self.area and not self.area * 0.2 <= area <= self.area * 4:
                 continue
@@ -75,9 +78,11 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None):
 
     automatic_seed = seed is None
     if seed is None:
-        seed = find_coloured_seed(path, start, end)
+        seed = find_coloured_seed(path, start, end, roi=roi)
     cap = cv2.VideoCapture(str(path))
     points = []
+    stopped_reason = "end-of-interval"
+    longest_gap = 0
     previous = None
     last = None
     velocity = np.zeros(2)
@@ -92,9 +97,9 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None):
     if roi:
         mask[:] = 0
         poly = np.array([[int(p["x"] * width), int(p["y"] * height)] for p in roi])
-        # Include a little flight space around the ground polygon.
+        # Optional image-space search boundary; independent of ground calibration.
         cv2.fillConvexPoly(mask, poly.astype(np.int32), 255)
-        mask = cv2.dilate(mask, np.ones((41, 41), np.uint8))
+
     cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, start - 1))
     try:
         for frame in range(max(0, start - 1), end + 1):
@@ -104,7 +109,15 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None):
             grey = cv2.GaussianBlur(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (5, 5), 0)
             if seed and frame == seed["frame"]:
                 last = np.array([seed["x"] * width, seed["y"] * height])
+                if not mask[
+                    min(height - 1, max(0, round(last[1]))), min(width - 1, max(0, round(last[0])))
+                ]:
+                    stopped_reason = "seed-outside-region"
+                    break
                 appearance = BallAppearance(image, last)
+                if not appearance.active:
+                    stopped_reason = "unsupported-seed-appearance"
+                    break
                 points.append(
                     {
                         "frame": frame,
@@ -119,6 +132,9 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None):
             if previous is None or frame < start or (seed and frame < seed["frame"]):
                 previous = grey
                 continue
+            if previous is not None and float(np.mean(cv2.absdiff(previous, grey))) > 45:
+                stopped_reason = "camera-cut"
+                break
             if appearance and appearance.active:
                 # Do not switch to unrelated motion when the seeded appearance is hidden.
                 # A short occlusion can recover locally; a long gap ends this seeded track.
@@ -128,14 +144,16 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None):
                 expected = last + velocity * (gap + 1)
                 radius = min(min(width, height) * 0.2, max(35, np.sqrt(appearance.area or 25) * 4))
                 choices = [
-                    (float(np.linalg.norm(p - expected)), p)
-                    for p, _ in appearance.candidates(image)
+                    (float(np.linalg.norm(p - expected)), p, area)
+                    for p, area in appearance.candidates(image)
+                    if mask[min(height - 1, round(p[1])), min(width - 1, round(p[0]))]
                     if np.linalg.norm(p - expected) <= radius
                 ]
                 choices.sort(key=lambda c: c[0])
                 if choices and (len(choices) == 1 or choices[1][0] - choices[0][0] >= 3):
                     position = choices[0][1]
                     velocity = 0.5 * velocity + 0.5 * (position - last) / (gap + 1)
+                    appearance.area = 0.7 * (appearance.area or choices[0][2]) + 0.3 * choices[0][2]
                     last = position
                     points.append(
                         {
@@ -143,59 +161,20 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None):
                             "x": float(last[0] / width),
                             "y": float(last[1] / height),
                             "provenance": "observed",
-                            "score": 0.55,
+                            "score": float(max(0.1, 1 - choices[0][0] / radius)),
                         }
                     )
                     gap = 0
                 else:
                     gap += 1
+                    longest_gap = max(longest_gap, gap)
                     if gap > max(2, round(fps * 0.15)):
-                        last = None
+                        stopped_reason = "lost-ball"
+                        break
                 previous = grey
                 continue
-            delta = cv2.absdiff(previous, grey)
-            _, motion = cv2.threshold(delta, 22, 255, cv2.THRESH_BINARY)
-            motion = cv2.bitwise_and(motion, mask)
-            # Select ball-like moving components. This deliberately conservative
-            # baseline is vulnerable to hands, net movement, and blur.
-            contours, _ = cv2.findContours(motion, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            candidates = []
-            for contour in contours:
-                area = cv2.contourArea(contour)
-                x, y, w, h = cv2.boundingRect(contour)
-                if not 4 <= area <= width * height * 0.0015 or max(w, h) / max(1, min(w, h)) > 4:
-                    continue
-                centre = np.array([x + w / 2, y + h / 2])
-                distance = float(np.linalg.norm(centre - last)) if last is not None else 0
-                if last is not None and distance > min(width, height) * 0.2:
-                    continue
-                candidates.append((distance if last is not None else -area, centre))
-            if candidates:
-                candidates.sort(key=lambda c: c[0])
-                # Ambiguous candidates should not create an invented observation.
-                if (
-                    len(candidates) > 1
-                    and last is not None
-                    and abs(candidates[1][0] - candidates[0][0]) < 3
-                ):
-                    gap += 1
-                else:
-                    last = candidates[0][1]
-                    points.append(
-                        {
-                            "frame": frame,
-                            "x": float(last[0] / width),
-                            "y": float(last[1] / height),
-                            "provenance": "observed",
-                            "score": 0.35,
-                        }
-                    )
-                    gap = 0
-            else:
-                gap += 1
-            if gap > max(2, round(fps * 0.15)):
-                last = None
-            previous = grey
+            stopped_reason = "no-supported-ball"
+            break
     finally:
         cap.release()
     contact = (
@@ -206,20 +185,32 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None):
             "contact_analysis": {
                 "status": "unresolved",
                 "ground": None,
-                "reason": "The motion-only track is not sufficient to locate a bounce. Mark a visible ball and analyse again.",
+                "reason": "No supported ball appearance was acquired. Use a shorter clear delivery interval or mark a visible ball and analyse again.",
             },
         }
     )
     return {
+        "diagnostics": {
+            "observed_frames": sum(p["provenance"] == "observed" for p in points),
+            "coverage": len(points) / max(1, end - start + 1),
+            "longest_gap": longest_gap,
+            "stop_reason": stopped_reason,
+            "ball_colour": "white"
+            if appearance and appearance.white
+            else "colour"
+            if appearance
+            else None,
+            "score_meaning": "association quality, not calibrated probability",
+        },
         "pipeline": PIPELINE_VERSION,
         "points": points,
         **contact,
         "automatic_seed": automatic_seed and seed is not None,
-        "method": "seeded-appearance" if appearance and appearance.active else "motion",
+        "method": "seeded-appearance" if appearance and appearance.active else "unresolved",
         "message": (
             "Experimental appearance-assisted candidates. "
             if appearance and appearance.active
-            else "Experimental motion candidates. "
+            else "No supported ball track. "
         )
         + ("Bounce candidate detected. " if contact["bounce"] else "Bounce unresolved. ")
         + "Automatic estimates remain separate from reviewed measurements.",

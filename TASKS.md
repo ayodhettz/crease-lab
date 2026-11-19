@@ -21,6 +21,15 @@ Version-tag delivery produces a draft release after its own checks and smoke tes
 
 ## After the first increment
 
+### Tracking reliability iteration - 19 November 2026
+
+- [x] Establish an offline, reproducible challenge suite with visibility labels and false-positive checks.
+- [x] Improve small/white-ball appearance detection and honour the optional image-space tracking boundary throughout the pipeline.
+- [x] Improve automatic seed selection and temporal association; handle short occlusions and terminate at camera cuts.
+- [x] Report coverage, gaps and failure reasons in the API and review screen; expose heuristic association scores in the API.
+- [x] Verify bounce analysis consumes continuous reliable observations and preserves corrections on reanalysis.
+- [x] Run local regression/benchmark checks, update documentation, and verify CI.
+
 - [x] Add automatic bounce candidates, contact-image localisation, calibrated line/length, and one-click draft loading with correction preservation.
 - [x] Test automatic seed -> bounce -> ground map end to end without manually marking the ball or bounce.
 - [ ] Establish reliable automatic ground calibration and broader broadcast coverage; only one of the three supplied intervals currently yields a supported bounce.
