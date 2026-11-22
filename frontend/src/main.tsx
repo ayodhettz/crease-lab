@@ -29,6 +29,7 @@ import { api, json } from './api';
 import { analyse, segments } from './geometry';
 import { applyAnalysis } from './applyAnalysis';
 import { PitchMap } from './PitchMap';
+import { RecordingPlayer } from './RecordingPlayer';
 import type {
   Calibration,
   Delivery,
@@ -69,6 +70,7 @@ function App() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [showOverview, setShowOverview] = useState(false);
   const [restoreRevision, setRestoreRevision] = useState('');
   const [deletePending, setDeletePending] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState('');
@@ -86,6 +88,7 @@ function App() {
         (bowlerFilter === 'all' || d.bowler === bowlerFilter),
     ) || [];
   const analysis = draft ? analyse(visible, draft.calibration, draft.target) : null;
+  const selectedGround = analysis?.points.find((p) => p.delivery.id === selected);
   const activeJob = jobs.find(
     (j) => j.delivery_id === selected && (j.status === 'queued' || j.status === 'running'),
   );
@@ -115,6 +118,7 @@ function App() {
     setCalPoints([]);
     setDeletePending(false);
     setShowSettings(false);
+    setShowOverview(false);
     setRestoreRevision('');
     if (s.state.calibration) {
       setCalWidth(s.state.calibration.width);
@@ -241,25 +245,6 @@ function App() {
     },
     [session],
   );
-
-  // Frame preview is intentionally sampled; analysis always uses original frames.
-  useEffect(() => {
-    if (!playing || !session) return;
-    const timer = setInterval(
-      () =>
-        setFrame((f) => {
-          const last = selectedDelivery?.end ?? session.video.frames - 1;
-          const next = f + Math.max(1, Math.round(session.video.fps / 12));
-          if (next >= last) {
-            setPlaying(false);
-            return last;
-          }
-          return next;
-        }),
-      1000 / 12,
-    );
-    return () => clearInterval(timer);
-  }, [playing, session?.id, selectedDelivery?.id]);
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -395,7 +380,9 @@ function App() {
     setBusy('Starting delivery analysis');
     setError('');
     try {
-      const seed = selectedDelivery.track.find((p) => p.frame === frame);
+      const seed = selectedDelivery.track.find(
+        (p) => p.frame === frame && p.provenance === 'manual',
+      );
       const job = await api<Job>(`/sessions/${session.id}/jobs`, {
         method: 'POST',
         ...json({ delivery_id: selected, seed: seed || null }),
@@ -415,7 +402,6 @@ function App() {
     'near right (bowler end)',
     'near left (bowler end)',
   ];
-  const frameUrl = session ? `/api/sessions/${session.id}/frame/${frame}` : '';
   const bowlerNames = [...new Set(draft?.deliveries.map((d) => d.bowler).filter(Boolean))];
 
   return (
@@ -750,7 +736,29 @@ function App() {
                   </div>
                 </section>
               )}
-              <section className="metrics">
+              <div className="workspace-navigation">
+                <div role="group" aria-label="Workspace view">
+                  <button
+                    className={!showOverview ? 'view-active' : ''}
+                    aria-pressed={!showOverview}
+                    onClick={() => setShowOverview(false)}
+                  >
+                    Delivery review
+                  </button>
+                  <button
+                    className={showOverview ? 'view-active' : ''}
+                    aria-pressed={showOverview}
+                    onClick={() => setShowOverview(true)}
+                  >
+                    Session overview
+                  </button>
+                </div>
+                <span>
+                  {draft.deliveries.length} deliveries ·{' '}
+                  {draft.deliveries.filter((d) => d.bounce).length} contact locations
+                </span>
+              </div>
+              <section className="metrics" hidden={!showOverview}>
                 <Metric
                   title="DELIVERIES"
                   value={String(visible.length).padStart(2, '0')}
@@ -809,57 +817,78 @@ function App() {
                       <Layers size={14} /> Overlay all
                     </button>
                   </div>
-                  <div className="review-toolbar">
-                    <button
-                      className={mode === 'inspect' ? 'selected-tool' : ''}
-                      onClick={() => setMode('inspect')}
-                    >
-                      <Focus size={14} /> Inspect
+                  <div className="delivery-switcher">
+                    <label>
+                      Ball colour
+                      <select
+                        aria-label="Ball colour"
+                        value={draft.ball_colour ?? 'auto'}
+                        onChange={(e) =>
+                          edit((s) => {
+                            s.ball_colour = e.target.value as 'auto' | 'red' | 'white';
+                          })
+                        }
+                      >
+                        <option value="auto">Auto detect</option>
+                        <option value="red">Red ball</option>
+                        <option value="white">White ball</option>
+                      </select>
+                    </label>
+                    <label>
+                      Selected delivery
+                      <select
+                        aria-label="Choose delivery"
+                        value={selected}
+                        onChange={(e) => selectDelivery(e.target.value)}
+                      >
+                        {!draft.deliveries.length && <option value="">No deliveries yet</option>}
+                        {draft.deliveries.map((d, i) => (
+                          <option key={d.id} value={d.id}>
+                            {d.label || `Delivery ${i + 1}`} ·{' '}
+                            {d.status === 'estimated'
+                              ? 'Bounce candidate'
+                              : d.status.replace('_', ' ')}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className="secondary" onClick={addDelivery} disabled={!!busy}>
+                      <Plus size={15} /> Add delivery
                     </button>
-                    <button
-                      className={mode === 'bounce' ? 'selected-tool' : ''}
-                      disabled={!selectedDelivery}
-                      onClick={() => {
-                        setMode('bounce');
-                        setPlaying(false);
-                      }}
-                    >
-                      <MapPin size={14} /> Mark bounce
-                    </button>
-                    <button
-                      className={mode === 'track' ? 'selected-tool' : ''}
-                      disabled={!selectedDelivery}
-                      onClick={() => {
-                        setMode('track');
-                        setPlaying(false);
-                      }}
-                    >
-                      <CircleDot size={14} /> Mark ball
-                    </button>
-                    <button
-                      className={mode === 'calibrate' ? 'selected-tool' : ''}
-                      onClick={() => {
-                        setMode('calibrate');
-                        setCalPoints([]);
-                        setPlaying(false);
-                      }}
-                    >
-                      <Crosshair size={14} /> Calibrate
-                    </button>
+                    {selectedDelivery && (
+                      <button
+                        className="primary"
+                        onClick={runTracker}
+                        disabled={!!busy || !!activeJob}
+                      >
+                        <WandSparkles size={15} />
+                        {activeJob ? 'Analysing…' : 'Analyze delivery'}
+                      </button>
+                    )}
                   </div>
+                  {!selectedDelivery && (
+                    <div className="workflow-hint">
+                      Move to the start of a ball, add a delivery, then analyse it. You can correct
+                      the result frame by frame.
+                    </div>
+                  )}
+
                   <div
                     className={`video-stage ${mode !== 'inspect' ? 'marking' : ''}`}
                     style={{ aspectRatio: `${session.video.width}/${session.video.height}` }}
                   >
-                    <img
-                      ref={image}
-                      src={frameUrl}
-                      alt={`Recording frame ${frame}`}
-                      draggable={false}
-                      onLoad={() => setLoadedFrame(frame)}
-                      onError={() =>
-                        setError('Could not load this frame. Try a different frame or recording.')
-                      }
+                    <RecordingPlayer
+                      key={session.id}
+                      sessionId={session.id}
+                      fps={session.video.fps}
+                      frame={frame}
+                      end={selectedDelivery?.end ?? session.video.frames - 1}
+                      playing={playing}
+                      imageRef={image}
+                      onFrame={setFrame}
+                      onPlaying={setPlaying}
+                      onLoaded={setLoadedFrame}
+                      onError={setError}
                     />
                     <svg
                       viewBox="0 0 1000 1000"
@@ -1030,6 +1059,44 @@ function App() {
                     />
                     <span className="frame-label">F {frame}</span>
                   </div>
+                  <div className="review-toolbar">
+                    <button
+                      className={mode === 'inspect' ? 'selected-tool' : ''}
+                      onClick={() => setMode('inspect')}
+                    >
+                      <Focus size={14} /> Inspect
+                    </button>
+                    <button
+                      className={mode === 'bounce' ? 'selected-tool' : ''}
+                      disabled={!selectedDelivery}
+                      onClick={() => {
+                        setMode('bounce');
+                        setPlaying(false);
+                      }}
+                    >
+                      <MapPin size={14} /> Mark bounce
+                    </button>
+                    <button
+                      className={mode === 'track' ? 'selected-tool' : ''}
+                      disabled={!selectedDelivery}
+                      onClick={() => {
+                        setMode('track');
+                        setPlaying(false);
+                      }}
+                    >
+                      <CircleDot size={14} /> Mark ball
+                    </button>
+                    <button
+                      className={mode === 'calibrate' ? 'selected-tool' : ''}
+                      onClick={() => {
+                        setMode('calibrate');
+                        setCalPoints([]);
+                        setPlaying(false);
+                      }}
+                    >
+                      <Crosshair size={14} /> Calibrate
+                    </button>
+                  </div>
                   {mode === 'calibrate' ? (
                     <div className="calibration-controls">
                       <div>
@@ -1177,7 +1244,8 @@ function App() {
                           onClick={runTracker}
                           disabled={!!busy || !!activeJob}
                         >
-                          <WandSparkles size={15} /> {activeJob ? 'Analysing…' : 'Analyze delivery'}
+                          <WandSparkles size={15} />{' '}
+                          {activeJob ? 'Analysing…' : 'Reanalyse delivery'}
                         </button>
                         <select
                           aria-label="Review status"
@@ -1309,10 +1377,28 @@ function App() {
                     <div className="panel-heading">
                       <h2>{imageContact ? 'Pitch contact' : 'Pitch map'}</h2>
                       <span className="badge">
-                        {draft.calibration ? 'METRES' : 'IMAGE POSITION'}
+                        {draft.calibration && !imageContact ? 'METRES' : 'IMAGE POSITION'}
                       </span>
                     </div>
-                    <div className="map-subheading">Where your deliveries land.</div>
+                    <div className="map-subheading">
+                      {selectedDelivery?.bounce
+                        ? `Contact at frame ${selectedDelivery.bounce.frame}`
+                        : 'Locate the bounce to see where this ball pitched.'}
+                    </div>
+                    {selectedDelivery && !visible.some((d) => d.id === selected) && (
+                      <div className="map-empty">
+                        <p>The selected delivery is hidden by your filters.</p>
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            setFilter('all');
+                            setBowlerFilter('all');
+                          }}
+                        >
+                          Show selected delivery
+                        </button>
+                      </div>
+                    )}
                     {imageContact && selectedDelivery?.bounce ? (
                       <div className="contact-preview">
                         <div
@@ -1323,7 +1409,7 @@ function App() {
                         >
                           <img
                             src={`/api/sessions/${session.id}/frame/${selectedDelivery.bounce.frame}`}
-                            alt="Automatically located pitch contact"
+                            alt="Pitch contact location on the recording"
                           />
                           <svg viewBox="0 0 1000 1000" preserveAspectRatio="none">
                             <circle
@@ -1343,7 +1429,12 @@ function App() {
                             />
                           </svg>
                         </div>
-                        <b>Estimated ground contact / F{selectedDelivery.bounce.frame}</b>
+                        <b>
+                          {selectedDelivery.bounce.provenance === 'manual'
+                            ? 'Marked contact'
+                            : 'Bounce candidate'}{' '}
+                          / F{selectedDelivery.bounce.frame}
+                        </b>
                         <p>The pin marks where the ball meets the pitch in this camera view.</p>
                         <small>
                           Metre-based line and length need a fixed camera and known ground geometry.
@@ -1357,6 +1448,80 @@ function App() {
                         selected={selected}
                         onSelect={selectDelivery}
                       />
+                    )}
+                    {selectedDelivery?.bounce ? (
+                      <div className="map-contact-summary">
+                        {selectedGround && (
+                          <b>
+                            {selectedGround.y.toFixed(2)} m from batter end ·{' '}
+                            {Math.abs(selectedGround.x).toFixed(2)} m{' '}
+                            {selectedGround.x < 0 ? 'left' : 'right'}
+                          </b>
+                        )}
+                        <span className="contact-status">
+                          {selectedDelivery.bounce.provenance === 'manual'
+                            ? 'Manually marked'
+                            : 'Automatic estimate · needs review'}
+                        </span>
+                        <button
+                          className="secondary"
+                          onClick={() => {
+                            setPlaying(false);
+                            setFrame(selectedDelivery.bounce!.frame);
+                          }}
+                        >
+                          Show contact frame
+                        </button>
+                        {selectedDelivery.bounce.ground_eligible === false && (
+                          <p>
+                            Camera stability could not be confirmed. The contact is shown on the
+                            recording instead of mapped into metres.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="map-empty" role="status">
+                        <b>
+                          {selectedDelivery?.status === 'full_toss'
+                            ? 'Marked as a full toss'
+                            : 'No bounce location yet'}
+                        </b>
+                        <p>
+                          {selectedDelivery?.status === 'full_toss'
+                            ? 'This delivery has no ground contact to plot.'
+                            : selectedDelivery?.status === 'unresolved'
+                              ? 'Analysis could not locate a supported bounce. Pause at the contact frame and mark it, or try a clearer delivery.'
+                              : 'Analyse a delivery or mark its ground contact. A ball trail alone does not locate a bounce.'}
+                        </p>
+                        {selectedDelivery && selectedDelivery.status !== 'full_toss' && (
+                          <button
+                            className="secondary"
+                            onClick={() => {
+                              setPlaying(false);
+                              setMode('bounce');
+                            }}
+                          >
+                            Locate bounce manually
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {!draft.calibration && (
+                      <div className="map-setup">
+                        <p>
+                          To compare line and length in metres, set four ground reference points.
+                        </p>
+                        <button
+                          className="text-button"
+                          onClick={() => {
+                            setMode('calibrate');
+                            setCalPoints([]);
+                            setPlaying(false);
+                          }}
+                        >
+                          Set up pitch map
+                        </button>
+                      </div>
                     )}
                     <div className="map-legend">
                       <span>

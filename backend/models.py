@@ -74,6 +74,7 @@ class SessionState(StrictModel):
     name: str = Field(min_length=1, max_length=150)
     notes: str = Field(default="", max_length=4000)
     calibration: Calibration | None = None
+    ball_colour: Literal["auto", "red", "white"] = "auto"
     target: Target = Field(default_factory=Target)
     deliveries: list[Delivery] = Field(default_factory=list, max_length=2000)
 

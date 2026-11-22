@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 
-def find_coloured_seed(path, start, end, roi=None):
+def find_coloured_seed(path, start, end, roi=None, ball_colour="auto"):
     """Acquire compact red/white objects with sustained motion relative to background.
 
     Scan the whole delivery interval, keeping at most sixteen observations per candidate.
@@ -17,6 +17,7 @@ def find_coloured_seed(path, start, end, roi=None):
     fps = cap.get(cv2.CAP_PROP_FPS)
     previous, old_grey = [], None
     ranked_seeds = {}
+    seed_colours = {}
     try:
         for frame in range(start, end + 1):
             ok, image = cap.read()
@@ -53,6 +54,10 @@ def find_coloured_seed(path, start, end, roi=None):
                 )
             current = []
             for colour, raw in [("red", red), ("white", white), ("dim-white", dim_white)]:
+                if (ball_colour == "red" and colour != "red") or (
+                    ball_colour == "white" and colour == "red"
+                ):
+                    continue
                 mask = raw.astype(np.uint8) * 255 & region
                 contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 for contour in contours:
@@ -144,6 +149,9 @@ def find_coloured_seed(path, start, end, roi=None):
                     )
                 )
                 radius = max(2, np.sqrt(p["area"] / np.pi))
+                if np.linalg.norm(np.ptp(positions, axis=0)) < radius * 3:
+                    p["rank"] = 0
+                    continue
                 coefficients = np.linalg.lstsq(fit, positions, rcond=None)[0]
                 acceleration = coefficients[2] * 2
                 # Prefer sustained flight curvature over moving hands or footwear.
@@ -172,26 +180,41 @@ def find_coloured_seed(path, start, end, roi=None):
                 ):
                     continue
                 unique.append(candidate)
-            candidates = unique
-            if candidates and (
-                len(candidates) == 1 or candidates[0]["rank"] > 1.4 * candidates[1]["rank"]
+            for candidates in (
+                [p for p in unique if p["colour"] == "red"],
+                [p for p in unique if p["colour"] != "red"],
             ):
-                f, p = candidates[0]["origin"]
-                key = (f, round(float(p[0]), 2), round(float(p[1]), 2))
-                # A delivery interval normally begins around release. Prefer its first
-                # supported flight over a later player movement, without forbidding late entry.
-                rank = candidates[0]["rank"] / (1 + (f - start) / max(8, fps * 0.3))
-                ranked_seeds[key] = max(ranked_seeds.get(key, 0), rank)
-                ranked_seeds = dict(
-                    sorted(ranked_seeds.items(), key=lambda item: item[1], reverse=True)[:16]
-                )
+                if candidates and (
+                    len(candidates) == 1 or candidates[0]["rank"] > 1.4 * candidates[1]["rank"]
+                ):
+                    f, p = candidates[0]["origin"]
+                    key = (f, round(float(p[0]), 2), round(float(p[1]), 2))
+                    rank = candidates[0]["rank"] / (1 + (f - start) / max(8, fps * 0.3))
+                    ranked_seeds[key] = max(ranked_seeds.get(key, 0), rank)
+                    seed_colours[key] = candidates[0]["colour"]
+            ranked_seeds = dict(
+                sorted(
+                    ranked_seeds.items(),
+                    key=lambda item: (seed_colours[item[0]] == "red", item[1]),
+                    reverse=True,
+                )[:16]
+            )
+            seed_colours = {key: seed_colours[key] for key in ranked_seeds}
             previous = current
     finally:
         cap.release()
     # Check initialization on the original frame; no frame cache grows with clip length.
     cap = cv2.VideoCapture(str(path))
     try:
-        for (f, x, y), _ in sorted(ranked_seeds.items(), key=lambda item: item[1], reverse=True):
+        candidates = sorted(
+            ranked_seeds.items(),
+            key=lambda item: (
+                ball_colour == "auto" and seed_colours.get(item[0]) == "red",
+                item[1],
+            ),
+            reverse=True,
+        )
+        for (f, x, y), _ in candidates:
             cap.set(cv2.CAP_PROP_POS_FRAMES, f)
             ok, image = cap.read()
             if ok and BallAppearance(image, np.array([x, y])).active:

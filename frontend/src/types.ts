@@ -23,6 +23,7 @@ export type Delivery = {
   track: TrackPoint[];
 };
 export type SessionState = {
+  ball_colour?: 'auto' | 'red' | 'white';
   name: string;
   notes: string;
   calibration: Calibration | null;

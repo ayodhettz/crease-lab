@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-PIPELINE_VERSION = "contact-analysis-0.5.0"
+PIPELINE_VERSION = "contact-analysis-0.6.0"
 
 
 def white_ball_mask(hsv, minimum_value=180, radius=None):
@@ -113,12 +113,12 @@ class BallAppearance:
         return candidates
 
 
-def track_video(path, start, end, seed=None, roi=None, calibration=None):
+def track_video(path, start, end, seed=None, roi=None, calibration=None, ball_colour="auto"):
     from .ball_analysis import analyse_contact, find_coloured_seed
 
     automatic_seed = seed is None
     if seed is None:
-        seed = find_coloured_seed(path, start, end, roi=roi)
+        seed = find_coloured_seed(path, start, end, roi=roi, ball_colour=ball_colour)
     cap = cv2.VideoCapture(str(path))
     points = []
     stopped_reason = "end-of-interval"
@@ -155,6 +155,12 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None):
                     stopped_reason = "seed-outside-region"
                     break
                 appearance = BallAppearance(image, last)
+                if (ball_colour == "red" and appearance.white) or (
+                    ball_colour == "white" and not appearance.white
+                ):
+                    stopped_reason = "seed-colour-mismatch"
+                    appearance.active = False
+                    break
                 if not appearance.active:
                     stopped_reason = "unsupported-seed-appearance"
                     break
@@ -256,6 +262,7 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None):
             if appearance
             else None,
             "score_meaning": "association quality, not calibrated probability",
+            "requested_ball_colour": ball_colour,
         },
         "pipeline": PIPELINE_VERSION,
         "points": points,

@@ -10,6 +10,16 @@ path.parent.mkdir(parents=True, exist_ok=True)
 create_demo(path)
 print(f"Created synthetic browser test fixture: {path.name}")
 
+# Browser-native fixture. Route it directly in the player test; it is not an MP4 import.
+native_path = path.parent / "playback.webm"
+native_writer = cv2.VideoWriter(str(native_path), cv2.VideoWriter_fourcc(*"VP80"), 24, (160, 90))
+if native_writer.isOpened():
+    for f in range(60):
+        image = np.full((90, 160, 3), (60, 100, 70), np.uint8)
+        cv2.circle(image, (15 + f * 2, 45), 5, (240, 240, 240), -1)
+        native_writer.write(image)
+    native_writer.release()
+
 bounce_path = path.parent / "bounce.mp4"
 writer = cv2.VideoWriter(str(bounce_path), cv2.VideoWriter_fourcc(*"mp4v"), 30, (320, 240))
 if not writer.isOpened():

@@ -57,6 +57,31 @@ def test_import_rejects_bad_media_and_cleans_up(client):
     )
 
 
+def test_recording_stream_supports_ranges_and_head(client, demo):
+    url = f"/api/sessions/{demo['id']}/media"
+    source = client.app.state.store.media_path(
+        client.app.state.store.get(demo["id"])["video"]["file"]
+    ).read_bytes()
+    response = client.get(url, headers={"Range": "bytes=0-63"})
+    assert response.status_code == 206
+    assert response.content == source[:64]
+    assert response.headers["content-range"] == f"bytes 0-63/{len(source)}"
+    assert client.head(url).headers["content-length"] == str(len(source))
+    assert client.get(url, headers={"Range": f"bytes={len(source)}-"}).status_code == 416
+
+
+def test_ball_colour_is_persisted_and_snapshotted_for_tracking(client, demo):
+    state = copy.deepcopy(demo["state"])
+    state["ball_colour"] = "red"
+    response = client.put(f"/api/sessions/{demo['id']}", json={"revision": 0, "state": state})
+    assert response.status_code == 200
+    assert response.json()["state"]["ball_colour"] == "red"
+    job = client.post(
+        f"/api/sessions/{demo['id']}/jobs", json={"delivery_id": state["deliveries"][0]["id"]}
+    ).json()
+    assert job["input"]["ball_colour"] == "red"
+
+
 def test_real_import_and_frame_decode(client, demo):
     path = client.app.state.store.media_path(demo["video"]["file"])
     with path.open("rb") as stream:

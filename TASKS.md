@@ -21,6 +21,14 @@ Version-tag delivery produces a draft release after its own checks and smoke tes
 
 ## After the first increment
 
+### Review usability and playback — 22 November 2026
+
+- [x] Replace timer-driven JPEG playback with native range-streamed video, preserving exact-frame marking and load-paced codec fallback.
+- [x] Reuse bounded decoders and JPEG cache; verify frame identity and local performance.
+- [x] Simplify the review layout, improve contrast and mobile layout, and make missing/map contact states actionable.
+- [x] Persist ball-colour selection, test red ball versus moving white hat, and prevent old automatic points from becoming retry seeds.
+- [x] Rerun synthetic and real development checks, backend/interface/browser tests, and CI.
+
 ### Tracking reliability iteration - 19 November 2026
 
 - [x] Establish an offline, reproducible challenge suite with visibility labels and false-positive checks.

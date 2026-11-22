@@ -103,6 +103,11 @@ test('mobile workspace fits the viewport', async ({ page, request }) => {
 test('automatic analysis finds a bounce and maps it without manual ball or bounce marks', async ({
   page,
 }) => {
+  const analysisRequests: { seed: unknown }[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().endsWith('/jobs'))
+      analysisRequests.push(request.postDataJSON());
+  });
   await page.goto('/');
   await page.locator('input[type=file]').setInputFiles('e2e/fixtures/bounce.mp4');
   await expect(page.getByRole('heading', { name: 'bounce', exact: true })).toBeVisible();
@@ -127,7 +132,94 @@ test('automatic analysis finds a bounce and maps it without manual ball or bounc
   await expect(page.getByLabel('Review status', { exact: true })).toHaveValue('estimated');
   await expect(page.getByRole('img', { name: 'Recording frame 18', exact: true })).toBeVisible();
   await expect(page.locator('.contact-result')).toContainText('Estimated line:');
+  await expect(page.locator('.map-point[data-selected=true]')).toBeVisible();
+  await page.getByRole('button', { name: 'Session overview', exact: true }).click();
   await expect(page.locator('.metric').first()).toContainText('1 ground estimates');
+  await page.getByRole('button', { name: 'Analyze delivery', exact: true }).click();
+  await expect.poll(() => analysisRequests.length).toBe(2);
+  expect(analysisRequests[1].seed).toBeNull();
+  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('status')).toContainText('Saved revision');
+});
+
+test('shows contact on the recording before calibration and explains a missing bounce', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles('e2e/fixtures/bounce.mp4');
+  await page.getByRole('button', { name: 'Add delivery here', exact: true }).click();
+  await expect(page.getByText('No bounce location yet', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Locate bounce manually', exact: true }).click();
+  await expect(page.getByRole('img', { name: 'Recording frame 0', exact: true })).toHaveJSProperty(
+    'complete',
+    true,
+  );
+  const stage = page.getByLabel('Video annotation surface');
+  const box = (await stage.boundingBox())!;
+  await stage.click({ position: { x: box.width * 0.5, y: box.height * 0.6 } });
+  await expect(
+    page.getByRole('img', { name: 'Pitch contact location on the recording' }),
+  ).toBeVisible();
+  await expect(page.locator('.map-panel .badge')).toHaveText('IMAGE POSITION');
+  await expect(page.getByRole('button', { name: 'Show contact frame', exact: true })).toBeVisible();
+});
+
+test('unsupported-codec preview waits for frame loading instead of building a request backlog', async ({
+  page,
+}) => {
+  await page.route('**/media', (route) => route.abort());
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Explore the demo', exact: true }).click();
+  await expect(page.getByRole('img', { name: /Recording frame/ })).toHaveJSProperty(
+    'complete',
+    true,
+  );
+  await expect(page.getByText('Sampled preview', { exact: true })).toBeVisible();
+  let active = 0,
+    maxActive = 0;
+  await page.route('**/frame/*', async (route) => {
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await route.continue();
+    active--;
+  });
+  await page.getByRole('button', { name: 'Play preview', exact: true }).click();
+  await expect(page.locator('.frame-label')).not.toHaveText('F 0');
+  await expect.poll(() => page.locator('.frame-label').textContent()).not.toBe('F 2');
+  await page.getByRole('button', { name: 'Pause preview', exact: true }).click();
+  expect(maxActive).toBeLessThanOrEqual(1);
+});
+
+test('native playback advances from the media clock without requesting JPEGs per frame', async ({
+  page,
+}) => {
+  await page.route('**/media', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'video/webm',
+      path: 'e2e/fixtures/playback.webm',
+    }),
+  );
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Explore the demo', exact: true }).click();
+  await expect(page.getByRole('img', { name: /Recording frame/ })).toHaveJSProperty(
+    'complete',
+    true,
+  );
+  await expect
+    .poll(() => page.locator('video').evaluate((v) => (v as HTMLVideoElement).readyState))
+    .toBeGreaterThanOrEqual(2);
+  let frames = 0;
+  page.on('request', (r) => {
+    if (/\/frame\/\d+/.test(r.url())) frames++;
+  });
+  await page.getByRole('button', { name: 'Play preview', exact: true }).click();
+  await expect
+    .poll(() => page.locator('video').evaluate((v) => (v as HTMLVideoElement).currentTime))
+    .toBeGreaterThan(0.25);
+  expect(frames).toBe(0);
+  await page.getByRole('button', { name: 'Pause preview', exact: true }).click();
+  await expect(page.getByRole('img', { name: /Recording frame/ })).toBeVisible();
 });

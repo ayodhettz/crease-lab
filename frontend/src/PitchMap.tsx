@@ -106,14 +106,22 @@ export function PitchMap({
             if (e.key === 'Enter' || e.key === ' ') onSelect(p.delivery.id);
           }}
           className="map-point"
+          data-selected={selected === p.delivery.id}
         >
           {selected === p.delivery.id && (
-            <circle cx={x(p.x)} cy={y(p.y)} r="12" fill="#d0693d22" stroke="#cb673c" />
+            <circle
+              cx={x(p.x)}
+              cy={y(p.y)}
+              r="15"
+              fill="#d0693d22"
+              stroke="#cb673c"
+              strokeWidth="2"
+            />
           )}
           <circle
             cx={x(p.x)}
             cy={y(p.y)}
-            r="6"
+            r={selected === p.delivery.id ? 8 : 6}
             fill={
               p.delivery.status === 'reviewed'
                 ? '#d3693c'
@@ -124,6 +132,11 @@ export function PitchMap({
             stroke="white"
             strokeWidth="1.5"
           />
+          {selected === p.delivery.id && (
+            <text x={x(p.x) + 18} y={y(p.y) + 4} className="selected-bounce-label">
+              Bounce
+            </text>
+          )}
           <title>
             {p.delivery.label}: {p.x.toFixed(2)} m lateral, {p.y.toFixed(2)} m length
           </title>

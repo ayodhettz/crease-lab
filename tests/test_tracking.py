@@ -97,3 +97,28 @@ def test_tinted_ball_crossing_bright_player_with_repeated_frames(tmp_path, autom
         np.linalg.norm(np.array([p["x"] * 320, p["y"] * 240]) - truth[p["frame"]]) < 8
         for p in result["points"]
     )
+
+
+@pytest.mark.parametrize("colour", ["auto", "red"])
+def test_red_ball_is_not_replaced_by_a_moving_white_hat(tmp_path, colour):
+    path = tmp_path / "red-ball-hat.mp4"
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30, (640, 360))
+    assert writer.isOpened()
+    try:
+        for f in range(36):
+            image = np.full((360, 640, 3), (65, 100, 75), np.uint8)
+            # A larger white hat follows a distracting curved foreground movement.
+            hx, hy = 400 + 2 * f, round(100 + 0.15 * (f - 15) ** 2)
+            cv2.ellipse(image, (hx, hy), (18, 8), 0, 0, 360, (245, 245, 245), -1)
+            cv2.circle(image, (90 + 6 * f, 80 + 2 * f), 6, (25, 25, 190), -1)
+            writer.write(image)
+    finally:
+        writer.release()
+    result = track_video(path, 0, 35, ball_colour=colour)
+    assert result["automatic_seed"]
+    assert result["diagnostics"]["ball_colour"] == "colour"
+    assert len(result["points"]) >= 30
+    assert all(
+        np.hypot(p["x"] * 640 - (90 + 6 * p["frame"]), p["y"] * 360 - (80 + 2 * p["frame"])) < 5
+        for p in result["points"]
+    )

@@ -1,0 +1,12 @@
+{
+  "kind": "Local exact-frame decoding comparison, same pixels and JPEG settings",
+  "requests": 12,
+  "frame_interval": [
+    7000,
+    7022
+  ],
+  "old_seconds": 3.0027,
+  "reused_decoder_seconds": 0.3576,
+  "warm_cache_seconds": 6.2e-05,
+  "identical_output": true
+}

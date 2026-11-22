@@ -17,6 +17,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .demo import create_demo
 from .geometry import analyse, ground_point, transform
 from .models import JobRequest, SaveRequest, SessionState
+from .preview import FrameReader
 from .store import Store
 from .tracking import PIPELINE_VERSION, track_video
 
@@ -50,17 +51,20 @@ def inspect_video(path):
 def create_app(data_dir: Path | None = None):
     store = Store(data_dir or Path(os.getenv("CREASE_DATA_DIR", ROOT / "data")))
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="crease-tracker")
+    previews = FrameReader()
 
     @asynccontextmanager
     async def lifespan(app):
         yield
         pool.shutdown(wait=True, cancel_futures=False)
+        previews.close()
 
     app = FastAPI(title="Crease Lab", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"]
     )
     app.state.store = store
+    app.state.previews = previews
 
     @app.middleware("http")
     async def local_access(request: Request, call_next):
@@ -194,34 +198,35 @@ def create_app(data_dir: Path | None = None):
     @app.delete("/api/sessions/{sid}", status_code=204)
     def delete(sid: str):
         try:
+            current = store.get(sid)
+            previews.invalidate(store.media_path(current["video"]["file"]))
             store.delete(sid)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
+
+    @app.api_route("/api/sessions/{sid}/media", methods=["GET", "HEAD"])
+    def media(sid: str):
+        current = store.get(sid)
+        return FileResponse(
+            store.media_path(current["video"]["file"]),
+            media_type="video/mp4",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
 
     @app.get("/api/sessions/{sid}/frame/{frame}")
     def frame(sid: str, frame: int):
         current = store.get(sid)
         if not 0 <= frame < current["video"]["frames"]:
             raise HTTPException(422, "Frame outside recording")
-        cap = cv2.VideoCapture(str(store.media_path(current["video"]["file"])))
         try:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame)
-            ok, image = cap.read()
-            if not ok:
-                raise HTTPException(422, "Could not decode this frame")
-            # Keep review requests manageable while preserving normalized coordinates.
-            if image.shape[1] > 1600:
-                image = cv2.resize(image, (1600, round(image.shape[0] * 1600 / image.shape[1])))
-            ok, data = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            if not ok:
-                raise HTTPException(500, "Could not encode frame")
+            data = previews.read(store.media_path(current["video"]["file"]), frame)
             return Response(
-                data.tobytes(),
+                data,
                 media_type="image/jpeg",
                 headers={"Cache-Control": "private, max-age=86400"},
             )
-        finally:
-            cap.release()
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     def process(jid):
         try:
@@ -236,6 +241,7 @@ def create_app(data_dir: Path | None = None):
                 snapshot["seed"],
                 snapshot["roi"],
                 snapshot.get("calibration"),
+                ball_colour=snapshot.get("ball_colour", "auto"),
             )
             store.update_job(jid, "completed", result=result)
         except Exception as exc:
@@ -263,6 +269,7 @@ def create_app(data_dir: Path | None = None):
             # Ground-plane calibration does not bound the ball's airborne image path.
             "roi": None,
             "calibration": cal,
+            "ball_colour": current["state"].get("ball_colour", "auto"),
             "pipeline": PIPELINE_VERSION,
         }
         jid, created = store.create_job(sid, body.delivery_id, snapshot)

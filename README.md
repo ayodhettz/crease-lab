@@ -14,6 +14,8 @@ Dependencies and a production UI have already been installed and built in this w
 
 Open http://127.0.0.1:8000 and choose **Explore the demo** or **Import a recording**. Keep the terminal open while using the app. Stop with Ctrl+C.
 
+Supported recordings now use native browser video playback; other codecs use a load-paced sampled preview with cached exact-frame decoding. Select **Red ball** or **White ball** above the player when the colour is known. A bounce needs a supported automatic contact or a manual ground-contact mark; otherwise the map explains what is missing. See [playback and review changes](docs/REVIEW-PLAYBACK.md).
+
 ## Fresh setup
 
 Use Python 3.12 and Node.js 24. The release archive already includes the built UI, so Node is needed only for development/rebuilding it.
