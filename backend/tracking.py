@@ -3,7 +3,26 @@
 import cv2
 import numpy as np
 
-PIPELINE_VERSION = "contact-analysis-0.4.0"
+PIPELINE_VERSION = "contact-analysis-0.5.0"
+
+
+def white_ball_mask(hsv, minimum_value=180, radius=None):
+    """Isolate locally bright compact objects, including blue-tinted white balls.
+
+    Absolute white thresholds merge balls with faces and reject coloured lighting.
+    Local luminance contrast separates small highlights from broad player regions.
+    """
+    value = hsv[:, :, 2]
+    sigma = max(4, min(24, (radius or min(value.shape) * 0.01) * 1.4))
+    scale = min(1.0, 480 / min(value.shape))
+    small = cv2.resize(value, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    background = cv2.resize(
+        cv2.GaussianBlur(small, (0, 0), sigma * scale), (value.shape[1], value.shape[0])
+    )
+    contrast = value.astype(np.int16) - background.astype(np.int16)
+    return ((hsv[:, :, 1] < 125) & (value >= minimum_value) & (contrast >= 9)).astype(
+        np.uint8
+    ) * 255
 
 
 class BallAppearance:
@@ -19,6 +38,8 @@ class BallAppearance:
         self.white = bool(np.median(pixels[:, 1]) < 65 and np.median(pixels[:, 2]) > 165)
         self.active = self.white or len(saturated) >= max(3, len(pixels) // 2)
         self.area = None
+        self.minimum_value = max(185, min(230, float(np.median(pixels[:, 2])) - 5))
+        self.brightness = float(np.median(pixels[:, 2]))
         if not self.active:
             return
         angles = (pixels if self.white else saturated)[:, 0].astype(float) / 180 * 2 * np.pi
@@ -47,13 +68,15 @@ class BallAppearance:
             (hue_distance <= 14) & (hsv[:, :, 1] >= self.min_saturation) & (hsv[:, :, 2] >= 20)
         ).astype(np.uint8) * 255
         if self.white:
-            mask = ((hsv[:, :, 1] < 65) & (hsv[:, :, 2] > 165)).astype(np.uint8) * 255
+            mask = white_ball_mask(
+                hsv, self.minimum_value, np.sqrt(self.area / np.pi) if self.area else None
+            )
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         candidates = []
         for contour in contours:
             area = cv2.contourArea(contour)
-            _, _, w, h = cv2.boundingRect(contour)
+            x, y, w, h = cv2.boundingRect(contour)
             if area < 2 or area > image.shape[0] * image.shape[1] * 0.015:
                 continue
             if max(w, h) / max(1, min(w, h)) > 5:
@@ -62,11 +85,28 @@ class BallAppearance:
                 continue
             moments = cv2.moments(contour)
             if moments["m00"]:
+                centre = np.array(
+                    [moments["m10"] / moments["m00"], moments["m01"] / moments["m00"]]
+                )
+                if self.white:
+                    component = np.zeros((h, w), np.uint8)
+                    cv2.drawContours(component, [contour - np.array([[[x, y]]])], -1, 255, -1)
+                    values = hsv[y : y + h, x : x + w, 2].astype(float)
+                    peak_floor = max(
+                        self.minimum_value, float(np.percentile(values[component > 0], 90)) - 15
+                    )
+                    weights = np.maximum(0, values - peak_floor) ** 2 * (component > 0)
+                    if weights.sum() > 0:
+                        yy, xx = np.indices(weights.shape)
+                        centre = np.array(
+                            [
+                                x + (xx * weights).sum() / weights.sum(),
+                                y + (yy * weights).sum() / weights.sum(),
+                            ]
+                        )
                 candidates.append(
                     (
-                        np.array(
-                            [moments["m10"] / moments["m00"], moments["m01"] / moments["m00"]]
-                        ),
+                        centre,
                         area,
                     )
                 )
@@ -143,17 +183,32 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None):
                     continue
                 expected = last + velocity * (gap + 1)
                 radius = min(min(width, height) * 0.2, max(35, np.sqrt(appearance.area or 25) * 4))
-                choices = [
-                    (float(np.linalg.norm(p - expected)), p, area)
-                    for p, area in appearance.candidates(image)
-                    if mask[min(height - 1, round(p[1])), min(width - 1, round(p[0]))]
-                    if np.linalg.norm(p - expected) <= radius
-                ]
+                choices = []
+                hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+                for p, area in appearance.candidates(image):
+                    px, py = round(p[0]), round(p[1])
+                    if not mask[min(height - 1, py), min(width - 1, px)]:
+                        continue
+                    distance = float(np.linalg.norm(p - expected))
+                    light = float(
+                        np.median(hsv[max(0, py - 1) : py + 2, max(0, px - 1) : px + 2, 2])
+                    )
+                    penalty = max(0, appearance.brightness - light) * 0.8 if appearance.white else 0
+                    cost = distance + penalty
+                    # Once motion is established, a weak white-blob match is a gap,
+                    # not permission to switch identity onto the bat or a player.
+                    gate = radius * 0.6 if appearance.white and len(points) >= 4 else radius
+                    strong_motion = appearance.white and distance <= max(
+                        5, np.sqrt(area / np.pi) * 0.6
+                    )
+                    if cost <= gate or strong_motion:
+                        choices.append((cost, p, area, light))
                 choices.sort(key=lambda c: c[0])
                 if choices and (len(choices) == 1 or choices[1][0] - choices[0][0] >= 3):
                     position = choices[0][1]
                     velocity = 0.5 * velocity + 0.5 * (position - last) / (gap + 1)
                     appearance.area = 0.7 * (appearance.area or choices[0][2]) + 0.3 * choices[0][2]
+                    appearance.brightness = 0.5 * appearance.brightness + 0.5 * choices[0][3]
                     last = position
                     points.append(
                         {

@@ -105,3 +105,5 @@ Source repository: [ayodhettz/crease-lab](https://github.com/ayodhettz/crease-la
 Tracking changes, measured synthetic results and remaining limitations: [Tracking reliability](docs/TRACKING-RELIABILITY.md).
 
 [Real fixed-camera validation](docs/FIXED-CAMERA-VALIDATION.md) exposes automatic acquisition failure and seeded identity drift on two external match clips. The automatic workflow is not yet validated on real footage; bounce-frame accuracy remains unestablished.
+
+[Acquisition and drift retest](docs/TRACKING-RETEST.md): pipeline 0.5.0 improves automatic spot checks from 0/16 to 15/16 on those same development clips. One automatic observation remains missing; broader real-footage accuracy and bounce timing remain unvalidated.

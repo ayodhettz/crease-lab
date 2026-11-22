@@ -7,12 +7,16 @@ import numpy as np
 def find_coloured_seed(path, start, end, roi=None):
     """Acquire compact red/white objects with sustained motion relative to background.
 
-    Scan the whole requested interval, keeping only five observations per candidate.
+    Scan the whole delivery interval, keeping at most sixteen observations per candidate.
     Ambiguous acquisitions remain unresolved rather than following arbitrary motion.
     """
     cap = cv2.VideoCapture(str(path))
+    from .tracking import BallAppearance, white_ball_mask
+
     cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+    fps = cap.get(cv2.CAP_PROP_FPS)
     previous, old_grey = [], None
+    ranked_seeds = {}
     try:
         for frame in range(start, end + 1):
             ok, image = cap.read()
@@ -37,7 +41,8 @@ def find_coloured_seed(path, start, end, roi=None):
                 & (hsv[:, :, 1] >= 55)
                 & (hsv[:, :, 2] >= 25)
             )
-            white = (hsv[:, :, 1] < 65) & (hsv[:, :, 2] > 165)
+            dim_white = white_ball_mask(hsv, minimum_value=180) > 0
+            white = dim_white & (hsv[:, :, 2] >= 210)
             region = np.full((height, width), 255, np.uint8)
             if roi:
                 region[:] = 0
@@ -47,7 +52,7 @@ def find_coloured_seed(path, start, end, roi=None):
                     255,
                 )
             current = []
-            for colour, raw in [("red", red), ("white", white)]:
+            for colour, raw in [("red", red), ("white", white), ("dim-white", dim_white)]:
                 mask = raw.astype(np.uint8) * 255 & region
                 contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 for contour in contours:
@@ -55,9 +60,15 @@ def find_coloured_seed(path, start, end, roi=None):
                     x, y, w, h = cv2.boundingRect(contour)
                     limit = 0.008 if colour == "red" else 0.003
                     perimeter = cv2.arcLength(contour, True)
-                    if not 6 <= area <= width * height * limit or max(w, h) / max(1, min(w, h)) > 3:
+                    minimum_area = max(6, width * height * 0.00002)
+                    if (
+                        not minimum_area <= area <= width * height * limit
+                        or max(w, h) / max(1, min(w, h)) > 5
+                    ):
                         continue
-                    if not perimeter or 4 * np.pi * area / perimeter**2 < 0.5:
+                    if not perimeter or 4 * np.pi * area / perimeter**2 < (
+                        0.2 if colour != "red" else 0.5
+                    ):
                         continue
                     padding = max(4, round(max(w, h) * 0.5))
                     ring = hsv[
@@ -69,19 +80,37 @@ def find_coloured_seed(path, start, end, roi=None):
                         and ((ring[:, :, 1] < 45) & (ring[:, :, 2] > 160)).mean() > 0.22
                     ):
                         continue
-                    centre = np.array([x + w / 2, y + h / 2])
+                    moments = cv2.moments(contour)
+                    centre = np.array(
+                        [moments["m10"] / moments["m00"], moments["m01"] / moments["m00"]]
+                    )
+                    if not roi and not (
+                        0.06 * width < centre[0] < 0.94 * width
+                        and 0.04 * height < centre[1] < 0.85 * height
+                    ):
+                        continue
                     matches = [
                         p
                         for p in previous
                         if p["colour"] == colour
                         and 0.45 * p["area"] <= area <= 2.2 * p["area"]
-                        and np.linalg.norm(centre - p["centre"] - shift) < min(width, height) * 0.12
+                        and np.linalg.norm(centre - p["centre"] - shift) < min(width, height) * 0.08
                     ]
-                    old = (
-                        min(matches, key=lambda p: np.linalg.norm(centre - p["centre"] - shift))
-                        if matches
-                        else None
-                    )
+
+                    def association_error(p):
+                        history = p["history"]
+                        velocity = (
+                            history[-1][1] - history[-2][1] if len(history) >= 2 else np.zeros(2)
+                        )
+                        return np.linalg.norm(centre - p["centre"] - velocity - shift)
+
+                    old = min(matches, key=association_error) if matches else None
+                    if (
+                        old
+                        and len(old["history"]) >= 2
+                        and association_error(old) > max(8, np.sqrt(area / np.pi) * 1.5)
+                    ):
+                        old = None
                     history = (old["history"] if old else []) + [(frame, centre)]
                     speeds = (old["speeds"] if old else []) + [
                         float(np.linalg.norm(centre - old["centre"] - shift)) if old else 0
@@ -91,30 +120,82 @@ def find_coloured_seed(path, start, end, roi=None):
                             colour=colour,
                             area=area,
                             centre=centre,
-                            history=history[-5:],
-                            speeds=speeds[-4:],
+                            history=history[-16:],
+                            speeds=speeds[-15:],
+                            origin=old["origin"] if old else (frame, centre),
                         )
                     )
             candidates = [
                 p
                 for p in current
-                if len(p["history"]) == 5
-                and np.median(p["speeds"]) > 1.5
+                if len(p["history"]) >= 5
+                and np.mean(p["speeds"]) > 1.5
                 and np.linalg.norm(p["history"][-1][1] - p["history"][0][1]) > 6
             ]
-            candidates.sort(key=lambda p: p["area"])
+            for p in candidates:
+                positions = np.array([point for _, point in p["history"]])
+                times = np.arange(len(positions))
+                fit = np.column_stack([np.ones(len(times)), times, times**2])
+                residual = float(
+                    np.sqrt(
+                        np.mean(
+                            (positions - fit @ np.linalg.lstsq(fit, positions, rcond=None)[0]) ** 2
+                        )
+                    )
+                )
+                radius = max(2, np.sqrt(p["area"] / np.pi))
+                coefficients = np.linalg.lstsq(fit, positions, rcond=None)[0]
+                acceleration = coefficients[2] * 2
+                # Prefer sustained flight curvature over moving hands or footwear.
+                flight = (
+                    max(0, float(acceleration[1] - abs(acceleration[0]))) if len(times) >= 8 else 0
+                )
+                p["rank"] = (
+                    float(np.mean(p["speeds"]))
+                    / (1 + residual)
+                    / np.sqrt(radius)
+                    * (1 + min(15, flight * 20))
+                    * min(len(times) / 8, 2)
+                    if residual <= max(1.5, radius * 0.3)
+                    else 0
+                )
+            candidates = [p for p in candidates if p["rank"] > 0]
+            candidates.sort(key=lambda p: p["rank"], reverse=True)
+            unique = []
+            for candidate in candidates:
+                if any(
+                    candidate["colour"] != "red"
+                    and other["colour"] != "red"
+                    and np.linalg.norm(candidate["centre"] - other["centre"])
+                    < max(6, np.sqrt(candidate["area"] / np.pi))
+                    for other in unique
+                ):
+                    continue
+                unique.append(candidate)
+            candidates = unique
             if candidates and (
-                len(candidates) == 1 or candidates[1]["area"] > 2 * candidates[0]["area"]
+                len(candidates) == 1 or candidates[0]["rank"] > 1.4 * candidates[1]["rank"]
             ):
-                f, p = candidates[0]["history"][0]
-                return dict(
-                    frame=f,
-                    x=float(p[0] / width),
-                    y=float(p[1] / height),
-                    provenance="observed",
-                    score=None,
+                f, p = candidates[0]["origin"]
+                key = (f, round(float(p[0]), 2), round(float(p[1]), 2))
+                # A delivery interval normally begins around release. Prefer its first
+                # supported flight over a later player movement, without forbidding late entry.
+                rank = candidates[0]["rank"] / (1 + (f - start) / max(8, fps * 0.3))
+                ranked_seeds[key] = max(ranked_seeds.get(key, 0), rank)
+                ranked_seeds = dict(
+                    sorted(ranked_seeds.items(), key=lambda item: item[1], reverse=True)[:16]
                 )
             previous = current
+    finally:
+        cap.release()
+    # Check initialization on the original frame; no frame cache grows with clip length.
+    cap = cv2.VideoCapture(str(path))
+    try:
+        for (f, x, y), _ in sorted(ranked_seeds.items(), key=lambda item: item[1], reverse=True):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, f)
+            ok, image = cap.read()
+            if ok and BallAppearance(image, np.array([x, y])).active:
+                return dict(frame=f, x=x / width, y=y / height, provenance="observed", score=None)
     finally:
         cap.release()
     return None

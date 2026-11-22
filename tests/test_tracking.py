@@ -68,3 +68,32 @@ def test_tracking_challenges(tmp_path, name):
         assert result["diagnostics"]["stop_reason"] == "camera-cut"
     if name == "short_occlusion":
         assert not {14, 15} & {p["frame"] for p in result["points"]}
+
+
+@pytest.mark.parametrize("automatic", [False, True])
+def test_tinted_ball_crossing_bright_player_with_repeated_frames(tmp_path, automatic):
+    path = tmp_path / "tinted.mp4"
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 60, (320, 240))
+    assert writer.isOpened()
+    truth = []
+    try:
+        for frame in range(72):
+            step = frame // 2
+            x, y = 60 + 5 * step, round(55 + 0.12 * (step - 10) ** 2)
+            image = np.full((240, 320, 3), (70, 100, 75), np.uint8)
+            cv2.ellipse(image, (145, 75), (18, 25), 0, 0, 360, (160, 180, 210), -1)
+            cv2.rectangle(image, (125, 100), (167, 180), (210, 95, 40), -1)
+            # White at release, increasingly blue under the simulated lighting.
+            colour = (248, round(238 - step * 1.1), round(235 - step * 2))
+            cv2.circle(image, (x, y), 6, colour, -1)
+            writer.write(image)
+            truth.append((x, y))
+    finally:
+        writer.release()
+    seed = None if automatic else dict(frame=0, x=truth[0][0] / 320, y=truth[0][1] / 240)
+    result = track_video(path, 0, 71, seed=seed)
+    assert len(result["points"]) >= 65
+    assert all(
+        np.linalg.norm(np.array([p["x"] * 320, p["y"] * 240]) - truth[p["frame"]]) < 8
+        for p in result["points"]
+    )

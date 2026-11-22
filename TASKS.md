@@ -39,6 +39,7 @@ Version-tag delivery produces a draft release after its own checks and smoke tes
 - [ ] Validate on held-out fixed-camera net footage. The supplied broadcast replay is a development example, not that benchmark.
 - [x] Run exploratory validation on two externally sourced fixed bowler-end match clips (10.77 MB of video). Automatic acquisition failed; seeded tracking drifted on one clip. See `docs/FIXED-CAMERA-VALIDATION.md`.
 - [ ] Independently label unobscured ground contact for a real-footage bounce timing benchmark. The two exploratory clips have no confidently scorable contact frame.
+- [x] Use those two development clips to improve white-ball acquisition and identity association, rerun unchanged references, and retain missed observations instead of player/bat drift. See `docs/TRACKING-RETEST.md`.
 
 - Collect authorised real net footage; benchmark visible-frame detection, bounce error, unresolved rate, and correction time.
 - Select supported camera profiles from measured results.
