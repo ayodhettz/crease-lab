@@ -37,6 +37,8 @@ Version-tag delivery produces a draft release after its own checks and smoke tes
 - [x] Import the supplied broadcast compilation locally, curate three short intervals, and retain separate manual reference points and automatic results.
 - [x] Add seeded colour assistance after observing motion-only centre errors; cover moving-background and occlusion behaviour with regression tests.
 - [ ] Validate on held-out fixed-camera net footage. The supplied broadcast replay is a development example, not that benchmark.
+- [x] Run exploratory validation on two externally sourced fixed bowler-end match clips (10.77 MB of video). Automatic acquisition failed; seeded tracking drifted on one clip. See `docs/FIXED-CAMERA-VALIDATION.md`.
+- [ ] Independently label unobscured ground contact for a real-footage bounce timing benchmark. The two exploratory clips have no confidently scorable contact frame.
 
 - Collect authorised real net footage; benchmark visible-frame detection, bounce error, unresolved rate, and correction time.
 - Select supported camera profiles from measured results.

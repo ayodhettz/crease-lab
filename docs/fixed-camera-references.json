@@ -1,0 +1,121 @@
+{
+  "description": "Human visual spot checks in source pixels. Approximate blur centres, not exhaustive frame annotations. Labels were drawn from source-only contact sheets; tracker coordinates were not used to choose centres. Results were run before finalizing the spot checks, so this is exploratory validation, not a blinded benchmark. References finalized after a source-only native-resolution verification pass. Two clips are exploratory development examples and must not become a claimed held-out benchmark.",
+  "clips": [
+    {
+      "id": "1",
+      "file": "source-1.mp4",
+      "source": "https://github.com/hemanth-sunkireddy/Cricket-Ball-Tracking/blob/HEAD/test_dataset/1.mp4",
+      "bytes": 1845821,
+      "start": 0,
+      "end": 30,
+      "tolerance_px": 15,
+      "seed": {
+        "frame": 1,
+        "x": 850,
+        "y": 215
+      },
+      "bounce_reference": null,
+      "bounce_reference_reason": "Ground contact could not be independently localized confidently through the batter/pad overlap. Do not interpret unresolved as a correct rejection or as a full toss.",
+      "references": [
+        [
+          1,
+          850,
+          215
+        ],
+        [
+          2,
+          866,
+          195
+        ],
+        [
+          3,
+          879,
+          184
+        ],
+        [
+          4,
+          890,
+          173
+        ],
+        [
+          5,
+          899,
+          167
+        ],
+        [
+          6,
+          908,
+          165
+        ],
+        [
+          7,
+          915,
+          167
+        ],
+        [
+          8,
+          919,
+          172
+        ]
+      ]
+    },
+    {
+      "id": "12",
+      "file": "source-12.mov",
+      "source": "https://github.com/hemanth-sunkireddy/Cricket-Ball-Tracking/blob/HEAD/test_dataset/12.mov",
+      "bytes": 8920411,
+      "start": 10,
+      "end": 62,
+      "tolerance_px": 20,
+      "seed": {
+        "frame": 14,
+        "x": 1090,
+        "y": 300
+      },
+      "bounce_reference": null,
+      "bounce_reference_reason": "Potential ground contact is obscured by the batter/pads and bat motion. Screen recording contains repeated frames; container FPS is not a reliable source exposure rate. No bounce-frame error can be scored.",
+      "references": [
+        [
+          14,
+          1090,
+          298
+        ],
+        [
+          18,
+          1094,
+          286
+        ],
+        [
+          22,
+          1107,
+          279
+        ],
+        [
+          26,
+          1118,
+          286
+        ],
+        [
+          30,
+          1122,
+          296
+        ],
+        [
+          34,
+          1132,
+          324
+        ],
+        [
+          38,
+          1144,
+          365
+        ],
+        [
+          42,
+          1148,
+          395
+        ]
+      ]
+    }
+  ]
+}

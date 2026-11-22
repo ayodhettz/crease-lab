@@ -103,3 +103,5 @@ GitHub Actions workflows are in `.github/workflows/`. CI runs Python checks on W
 Source repository: [ayodhettz/crease-lab](https://github.com/ayodhettz/crease-lab) (private). Current pipeline results are available under [GitHub Actions](https://github.com/ayodhettz/crease-lab/actions). No hosting service is required for the local application.
 
 Tracking changes, measured synthetic results and remaining limitations: [Tracking reliability](docs/TRACKING-RELIABILITY.md).
+
+[Real fixed-camera validation](docs/FIXED-CAMERA-VALIDATION.md) exposes automatic acquisition failure and seeded identity drift on two external match clips. The automatic workflow is not yet validated on real footage; bounce-frame accuracy remains unestablished.

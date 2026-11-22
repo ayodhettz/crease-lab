@@ -1,0 +1,267 @@
+{
+  "pipeline": "contact-analysis-0.4.0",
+  "kind": "exploratory real-footage spot checks, not a blinded benchmark",
+  "downloaded_video_bytes": 10766232,
+  "clips": [
+    {
+      "id": "1",
+      "source": "https://github.com/hemanth-sunkireddy/Cricket-Ball-Tracking/blob/HEAD/test_dataset/1.mp4",
+      "sha256": "d657a21b5201ac9d7a2fc5be0ff14a01340197622d55ef31d23e2f601295aa07",
+      "width": 1920,
+      "height": 1080,
+      "fps": 25.0,
+      "frames": 31,
+      "bounce_reference": null,
+      "bounce_reference_reason": "Ground contact could not be independently localized confidently through the batter/pad overlap. Do not interpret unresolved as a correct rejection or as a full toss.",
+      "modes": {
+        "automatic": {
+          "labelled_checks": 8,
+          "correct_checks": 0,
+          "missing_checks": 8,
+          "wrong_location_checks": 0,
+          "median_error_px_on_returned_checks": null,
+          "tolerance_px": 15,
+          "returned_points": 0,
+          "bounce": null,
+          "bounce_frame_error": null,
+          "diagnostics": {
+            "observed_frames": 0,
+            "coverage": 0.0,
+            "longest_gap": 0,
+            "stop_reason": "no-supported-ball",
+            "ball_colour": null,
+            "score_meaning": "association quality, not calibrated probability"
+          },
+          "checks": [
+            {
+              "frame": 1,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 2,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 3,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 4,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 5,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 6,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 7,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 8,
+              "error_px": null,
+              "within_tolerance": false
+            }
+          ]
+        },
+        "seeded": {
+          "labelled_checks": 7,
+          "correct_checks": 7,
+          "missing_checks": 0,
+          "wrong_location_checks": 0,
+          "median_error_px_on_returned_checks": 2.23,
+          "tolerance_px": 15,
+          "returned_points": 15,
+          "bounce": null,
+          "bounce_frame_error": null,
+          "diagnostics": {
+            "observed_frames": 14,
+            "coverage": 0.4838709677419355,
+            "longest_gap": 5,
+            "stop_reason": "lost-ball",
+            "ball_colour": "white",
+            "score_meaning": "association quality, not calibrated probability"
+          },
+          "checks": [
+            {
+              "frame": 2,
+              "error_px": 1.67,
+              "within_tolerance": true
+            },
+            {
+              "frame": 3,
+              "error_px": 2.8,
+              "within_tolerance": true
+            },
+            {
+              "frame": 4,
+              "error_px": 2.18,
+              "within_tolerance": true
+            },
+            {
+              "frame": 5,
+              "error_px": 1.26,
+              "within_tolerance": true
+            },
+            {
+              "frame": 6,
+              "error_px": 2.23,
+              "within_tolerance": true
+            },
+            {
+              "frame": 7,
+              "error_px": 3.53,
+              "within_tolerance": true
+            },
+            {
+              "frame": 8,
+              "error_px": 3.39,
+              "within_tolerance": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "12",
+      "source": "https://github.com/hemanth-sunkireddy/Cricket-Ball-Tracking/blob/HEAD/test_dataset/12.mov",
+      "sha256": "d3abaa7638927a732fc2d18564c441fb26e70f067d678e93e6baa0bfbb6ea45e",
+      "width": 2560,
+      "height": 1440,
+      "fps": 47.11864406779661,
+      "frames": 139,
+      "bounce_reference": null,
+      "bounce_reference_reason": "Potential ground contact is obscured by the batter/pads and bat motion. Screen recording contains repeated frames; container FPS is not a reliable source exposure rate. No bounce-frame error can be scored.",
+      "modes": {
+        "automatic": {
+          "labelled_checks": 8,
+          "correct_checks": 0,
+          "missing_checks": 8,
+          "wrong_location_checks": 0,
+          "median_error_px_on_returned_checks": null,
+          "tolerance_px": 20,
+          "returned_points": 1,
+          "bounce": null,
+          "bounce_frame_error": null,
+          "diagnostics": {
+            "observed_frames": 1,
+            "coverage": 0.018867924528301886,
+            "longest_gap": 8,
+            "stop_reason": "lost-ball",
+            "ball_colour": "white",
+            "score_meaning": "association quality, not calibrated probability"
+          },
+          "checks": [
+            {
+              "frame": 14,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 18,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 22,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 26,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 30,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 34,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 38,
+              "error_px": null,
+              "within_tolerance": false
+            },
+            {
+              "frame": 42,
+              "error_px": null,
+              "within_tolerance": false
+            }
+          ]
+        },
+        "seeded": {
+          "labelled_checks": 7,
+          "correct_checks": 4,
+          "missing_checks": 0,
+          "wrong_location_checks": 3,
+          "median_error_px_on_returned_checks": 14.72,
+          "tolerance_px": 20,
+          "returned_points": 46,
+          "bounce": null,
+          "bounce_frame_error": null,
+          "diagnostics": {
+            "observed_frames": 45,
+            "coverage": 0.8679245283018868,
+            "longest_gap": 3,
+            "stop_reason": "end-of-interval",
+            "ball_colour": "white",
+            "score_meaning": "association quality, not calibrated probability"
+          },
+          "checks": [
+            {
+              "frame": 18,
+              "error_px": 14.72,
+              "within_tolerance": true
+            },
+            {
+              "frame": 22,
+              "error_px": 8.72,
+              "within_tolerance": true
+            },
+            {
+              "frame": 26,
+              "error_px": 8.68,
+              "within_tolerance": true
+            },
+            {
+              "frame": 30,
+              "error_px": 9.6,
+              "within_tolerance": true
+            },
+            {
+              "frame": 34,
+              "error_px": 30.33,
+              "within_tolerance": false
+            },
+            {
+              "frame": 38,
+              "error_px": 64.89,
+              "within_tolerance": false
+            },
+            {
+              "frame": 42,
+              "error_px": 83.09,
+              "within_tolerance": false
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
