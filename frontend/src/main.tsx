@@ -835,13 +835,17 @@ function App() {
                       </select>
                     </label>
                     <label>
-                      Selected delivery
+                      Review range
                       <select
                         aria-label="Choose delivery"
                         value={selected}
                         onChange={(e) => selectDelivery(e.target.value)}
                       >
-                        {!draft.deliveries.length && <option value="">No deliveries yet</option>}
+                        <option value="">
+                          {draft.deliveries.length
+                            ? 'Whole recording'
+                            : 'Whole recording · no deliveries yet'}
+                        </option>
                         {draft.deliveries.map((d, i) => (
                           <option key={d.id} value={d.id}>
                             {d.label || `Delivery ${i + 1}`} ·{' '}
@@ -1022,6 +1026,7 @@ function App() {
                       onClick={() => {
                         if (selectedDelivery && frame >= selectedDelivery.end)
                           setFrame(selectedDelivery.start);
+                        if (!selectedDelivery && frame >= session.video.frames - 1) setFrame(0);
                         setPlaying(!playing);
                       }}
                     >
@@ -1381,9 +1386,11 @@ function App() {
                       </span>
                     </div>
                     <div className="map-subheading">
-                      {selectedDelivery?.bounce
-                        ? `Contact at frame ${selectedDelivery.bounce.frame}`
-                        : 'Locate the bounce to see where this ball pitched.'}
+                      {!selectedDelivery && visible.some((d) => d.bounce)
+                        ? 'Choose a delivery to inspect its contact.'
+                        : selectedDelivery?.bounce
+                          ? `Contact at frame ${selectedDelivery.bounce.frame}`
+                          : 'Locate the bounce to see where this ball pitched.'}
                     </div>
                     {selectedDelivery && !visible.some((d) => d.id === selected) && (
                       <div className="map-empty">
@@ -1478,6 +1485,14 @@ function App() {
                             recording instead of mapped into metres.
                           </p>
                         )}
+                      </div>
+                    ) : !selectedDelivery && visible.some((d) => d.bounce) ? (
+                      <div className="map-empty">
+                        <b>Session contacts</b>
+                        <p>
+                          Choose a delivery to highlight where it pitched and open its contact
+                          frame.
+                        </p>
                       </div>
                     ) : (
                       <div className="map-empty" role="status">

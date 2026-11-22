@@ -211,6 +211,7 @@ test('native playback advances from the media clock without requesting JPEGs per
   await expect
     .poll(() => page.locator('video').evaluate((v) => (v as HTMLVideoElement).readyState))
     .toBeGreaterThanOrEqual(2);
+  await page.getByLabel('Choose delivery', { exact: true }).selectOption('');
   let frames = 0;
   page.on('request', (r) => {
     if (/\/frame\/\d+/.test(r.url())) frames++;
@@ -218,7 +219,7 @@ test('native playback advances from the media clock without requesting JPEGs per
   await page.getByRole('button', { name: 'Play preview', exact: true }).click();
   await expect
     .poll(() => page.locator('video').evaluate((v) => (v as HTMLVideoElement).currentTime))
-    .toBeGreaterThan(0.25);
+    .toBeGreaterThan(1.4);
   expect(frames).toBe(0);
   await page.getByRole('button', { name: 'Pause preview', exact: true }).click();
   await expect(page.getByRole('img', { name: /Recording frame/ })).toBeVisible();

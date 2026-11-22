@@ -4,7 +4,7 @@
 
 The previous player was a 12 Hz timer changing a JPEG URL. Every request opened the source recording again and sought to the desired frame. Long-GOP video and overlapping requests could make displayed footage lag far behind the timeline.
 
-Supported recordings now play through an HTML video element with byte-range media delivery. The browser's presented-frame clock updates the timeline and track overlay. Pausing, seeking and marking use an exact-frame JPEG from the original recording. The playback element is not restarted on every frame update.
+Supported recordings now play through an HTML video element with byte-range media delivery. The browser's presented-frame clock updates the timeline and track overlay. Pausing, seeking and marking use an exact-frame JPEG from the original recording. The playback element is not restarted on every frame update. The delivery selector includes **Whole recording** to play beyond an individual delivery's bounds; selecting a delivery restores its focused review range.
 
 Recordings that the browser cannot decode directly retain a clearly labelled **Sampled preview**. That preview waits for an image to load before advancing; it does not create a timer-driven request backlog. It is sampled review, not full-frame video playback. H.264 MP4 is the practical full-playback format on the tested workstation; codec support varies by browser. No proxy transcode or dependency download is required to open a session.
 

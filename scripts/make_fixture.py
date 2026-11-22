@@ -14,7 +14,7 @@ print(f"Created synthetic browser test fixture: {path.name}")
 native_path = path.parent / "playback.webm"
 native_writer = cv2.VideoWriter(str(native_path), cv2.VideoWriter_fourcc(*"VP80"), 24, (160, 90))
 if native_writer.isOpened():
-    for f in range(60):
+    for f in range(120):
         image = np.full((90, 160, 3), (60, 100, 70), np.uint8)
         cv2.circle(image, (15 + f * 2, 45), 5, (240, 240, 240), -1)
         native_writer.write(image)
