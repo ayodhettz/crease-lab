@@ -2118,3 +2118,72 @@ button {
     top: 12px;
   }
 }
+.seed-guide {
+  padding: 18px 20px;
+  background: #edf4e9;
+  border-top: 1px solid #d6e2d1;
+  border-bottom: 1px solid #d6e2d1;
+}
+.seed-crop {
+  display: block;
+  width: 108px;
+  height: 108px;
+  margin: 12px 0;
+  border: 1px solid #758e7e;
+  border-radius: 6px;
+  background: #22392c;
+}
+.seed-guide small {
+  display: block;
+  max-width: 65ch;
+  color: #435d4a;
+  line-height: 1.6;
+}
+.tracking-recovery {
+  margin: 14px 0;
+  padding: 14px 0;
+  border-block: 1px solid #b6c8bb;
+}
+.contact-preview svg[role='button'] {
+  cursor: pointer;
+  pointer-events: auto;
+}
+.seed-guide h3 {
+  margin: 0 0 7px;
+  color: #244e38;
+  font-size: 16px;
+  font-weight: 600;
+}
+.seed-guide p {
+  max-width: 65ch;
+  color: #4d6757;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.seed-guide .seed-confirmation {
+  margin-top: 8px;
+  font-weight: 600;
+  color: #24553e;
+}
+.seed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.seed-actions .text-button {
+  padding: 8px;
+}
+@media (max-width: 760px) {
+  .seed-guide {
+    padding: 16px;
+  }
+  .seed-actions .primary {
+    order: -1;
+    flex-basis: 100%;
+  }
+  .seed-actions .secondary {
+    flex-basis: 100%;
+  }
+}

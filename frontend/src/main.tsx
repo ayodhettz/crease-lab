@@ -38,10 +38,11 @@ import type {
   Session,
   SessionState,
   SessionSummary,
+  TrackPoint,
 } from './types';
 import './style.css';
 
-type Mode = 'inspect' | 'bounce' | 'track' | 'calibrate';
+type Mode = 'inspect' | 'bounce' | 'track' | 'calibrate' | 'seed';
 const clone = <T,>(value: T): T => structuredClone(value);
 const formatTime = (frame: number, fps: number) =>
   `${Math.floor(frame / fps / 60)
@@ -59,6 +60,7 @@ function App() {
   const [playing, setPlaying] = useState(false);
   const [loadedFrame, setLoadedFrame] = useState(-1);
   const [mode, setMode] = useState<Mode>('inspect');
+  const [analysisSeed, setAnalysisSeed] = useState<TrackPoint | null>(null);
   const [calPoints, setCalPoints] = useState<Point[]>([]);
   const [calWidth, setCalWidth] = useState(3.05);
   const [calLength, setCalLength] = useState(20.12);
@@ -78,9 +80,6 @@ function App() {
   const pendingAnalysis = useRef<string | null>(null);
   const image = useRef<HTMLImageElement>(null);
   const selectedDelivery = draft?.deliveries.find((d) => d.id === selected);
-  const imageContact =
-    !!selectedDelivery?.bounce &&
-    (!draft?.calibration || selectedDelivery.bounce.ground_eligible === false);
   const visible =
     draft?.deliveries.filter(
       (d) =>
@@ -89,6 +88,7 @@ function App() {
     ) || [];
   const analysis = draft ? analyse(visible, draft.calibration, draft.target) : null;
   const selectedGround = analysis?.points.find((p) => p.delivery.id === selected);
+  const imageContact = !!selectedDelivery?.bounce && !selectedGround;
   const activeJob = jobs.find(
     (j) => j.delivery_id === selected && (j.status === 'queued' || j.status === 'running'),
   );
@@ -110,6 +110,7 @@ function App() {
     setFrame(s.state.deliveries[0]?.start || 0);
     setLoadedFrame(-1);
     setMode('inspect');
+    setAnalysisSeed(null);
     setPlaying(false);
     setJobs([]);
     pendingAnalysis.current = null;
@@ -159,14 +160,14 @@ function App() {
     });
   }
 
-  async function save(): Promise<Session | null> {
+  async function save(stateOverride?: SessionState): Promise<Session | null> {
     if (!session || !draft) return null;
     setBusy('Saving');
     setError('');
     try {
       const s = await api<Session>(`/sessions/${session.id}`, {
         method: 'PUT',
-        ...json({ revision: session.revision, state: draft }),
+        ...json({ revision: session.revision, state: stateOverride ?? draft }),
       });
       setSession(s);
       setDraft(clone(s.state));
@@ -225,7 +226,7 @@ function App() {
       return;
     }
     setUndo((history) => [...history.slice(-39), clone(draft)]);
-    const next = applyAnalysis(draft, job.delivery_id, job.result);
+    const next = applyAnalysis(draft, job.delivery_id, job.result, job.input.seed?.frame);
     setDraft(next);
     setDirty(true);
     if (job.result.bounce) {
@@ -310,6 +311,7 @@ function App() {
     setSelected(id);
     setPlaying(false);
     setMode('inspect');
+    setAnalysisSeed(null);
     const d = draft?.deliveries.find((d) => d.id === id);
     if (d) setFrame(d.bounce?.frame ?? d.start);
   }
@@ -340,6 +342,11 @@ function App() {
 
   function mark(e: React.MouseEvent<SVGSVGElement>) {
     if (!image.current || mode === 'inspect') return;
+    if (playing) {
+      setPlaying(false);
+      setNotice('Playback paused. Wait for the still frame, then click the ball.');
+      return;
+    }
     if (loadedFrame !== frame) {
       setError('Wait for this frame to finish loading before marking it.');
       return;
@@ -362,6 +369,10 @@ function App() {
       setError('Move inside the selected delivery before marking a point.');
       return;
     }
+    if (mode === 'seed') {
+      setAnalysisSeed({ ...point, frame, provenance: 'manual', score: null });
+      return;
+    }
     editDelivery((d) => {
       d.status = 'unreviewed';
       if (mode === 'bounce') d.bounce = { ...point, frame, provenance: 'manual' };
@@ -373,22 +384,43 @@ function App() {
     });
   }
 
-  async function runTracker() {
-    if (!session || !selectedDelivery) return;
-    const current = dirty ? await save() : session;
+  function beginAnalysis(recoveryFrame?: number) {
+    if (!selectedDelivery || busy || activeJob) return;
+    setPlaying(false);
+    setMode('seed');
+    setAnalysisSeed(null);
+    setError('');
+    setNotice('');
+    if (typeof recoveryFrame === 'number') setFrame(recoveryFrame);
+    else if (frame < selectedDelivery.start || frame > selectedDelivery.end)
+      setFrame(selectedDelivery.start);
+  }
+
+  async function runTracker(seedOverride: TrackPoint | null) {
+    if (!session || !selectedDelivery || !draft) return;
+    setPlaying(false);
+    const next = clone(draft);
+    if (seedOverride) {
+      const delivery = next.deliveries.find((d) => d.id === selected)!;
+      delivery.track = [
+        ...delivery.track.filter((p) => p.frame !== seedOverride.frame),
+        seedOverride,
+      ].sort((a, b) => a.frame - b.frame);
+    }
+    const current = dirty || seedOverride ? await save(next) : session;
     if (!current) return;
     setBusy('Starting delivery analysis');
     setError('');
     try {
-      const seed = selectedDelivery.track.find(
-        (p) => p.frame === frame && p.provenance === 'manual',
-      );
+      const seed = seedOverride;
       const job = await api<Job>(`/sessions/${session.id}/jobs`, {
         method: 'POST',
         ...json({ delivery_id: selected, seed: seed || null }),
       });
       setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)]);
       pendingAnalysis.current = job.id;
+      setMode('inspect');
+      setAnalysisSeed(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -626,7 +658,11 @@ function App() {
                   >
                     <RotateCcw size={15} /> Undo
                   </button>
-                  <button className="primary" onClick={save} disabled={!dirty || !!busy}>
+                  <button
+                    className="primary"
+                    onClick={() => void save()}
+                    disabled={!dirty || !!busy}
+                  >
                     <Save size={16} /> {dirty ? 'Save changes' : 'Saved'}
                   </button>
                 </div>
@@ -862,7 +898,7 @@ function App() {
                     {selectedDelivery && (
                       <button
                         className="primary"
-                        onClick={runTracker}
+                        onClick={() => beginAnalysis()}
                         disabled={!!busy || !!activeJob}
                       >
                         <WandSparkles size={15} />
@@ -870,6 +906,106 @@ function App() {
                       </button>
                     )}
                   </div>
+                  {mode === 'seed' && selectedDelivery && (
+                    <div className="seed-guide" role="region" aria-label="Choose tracking start">
+                      <div>
+                        <h3>Choose the starting ball position</h3>
+                        <p>
+                          Pause near the release, then click the centre of the visible ball.
+                          Tracking will follow it forward from this frame.
+                        </p>
+                        {analysisSeed && (
+                          <p className="seed-confirmation">
+                            Starting point selected on frame {analysisSeed.frame}.
+                            {analysisSeed.frame !== frame &&
+                              ' Return to that frame or select a new point.'}
+                          </p>
+                        )}
+                        {analysisSeed && (
+                          <svg
+                            className="seed-crop"
+                            role="img"
+                            aria-label="Selected ball magnified"
+                            viewBox={`${analysisSeed.x * session.video.width - 24} ${analysisSeed.y * session.video.height - 24} 48 48`}
+                          >
+                            <image
+                              href={`/api/sessions/${session.id}/frame/${analysisSeed.frame}`}
+                              width={session.video.width}
+                              height={session.video.height}
+                            />
+                            <circle
+                              cx={analysisSeed.x * session.video.width}
+                              cy={analysisSeed.y * session.video.height}
+                              r="9"
+                              fill="none"
+                              stroke="#ffb65c"
+                              strokeWidth="0.7"
+                            />
+                          </svg>
+                        )}
+                        <small>
+                          Choose the ball, not a hat or pad. Earlier observations are retained when
+                          you restart later in this delivery.
+                        </small>
+                      </div>
+                      <div className="seed-actions">
+                        <button
+                          className="secondary"
+                          disabled={!!busy}
+                          onClick={() => {
+                            setPlaying(false);
+                            setFrame(selectedDelivery.start);
+                          }}
+                        >
+                          Go to delivery start
+                        </button>
+                        <button
+                          className="primary"
+                          disabled={
+                            !analysisSeed ||
+                            analysisSeed.frame !== frame ||
+                            loadedFrame !== frame ||
+                            playing ||
+                            !!busy ||
+                            !!activeJob
+                          }
+                          onClick={() => {
+                            if (analysisSeed) void runTracker(analysisSeed);
+                          }}
+                        >
+                          Start tracking
+                        </button>
+                        {analysisSeed && analysisSeed.frame !== frame && (
+                          <button
+                            className="secondary"
+                            onClick={() => {
+                              setPlaying(false);
+                              setFrame(analysisSeed.frame);
+                            }}
+                          >
+                            Return to starting frame
+                          </button>
+                        )}
+                        <button
+                          className="text-button"
+                          disabled={!!busy || !!activeJob}
+                          onClick={() => void runTracker(null)}
+                        >
+                          Find ball automatically
+                        </button>
+                        <button
+                          className="text-button"
+                          disabled={!!busy || !!activeJob}
+                          onClick={() => {
+                            setMode('inspect');
+                            setAnalysisSeed(null);
+                          }}
+                        >
+                          Cancel selection
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {!selectedDelivery && (
                     <div className="workflow-hint">
                       Move to the start of a ball, add a delivery, then analyse it. You can correct
@@ -900,83 +1036,107 @@ function App() {
                       onClick={mark}
                       aria-label="Video annotation surface"
                     >
-                      {(overlay ? visible : selectedDelivery ? [selectedDelivery] : []).map(
-                        (d, i) => (
-                          <g key={d.id} opacity={overlay && d.id !== selected ? 0.5 : 1}>
-                            {segments(d.track.filter((p) => overlay || p.frame <= frame)).map(
-                              ({ a, b }) => (
-                                <line
-                                  key={`${a.frame}-${b.frame}`}
-                                  x1={a.x * 1000}
-                                  y1={a.y * 1000}
-                                  x2={b.x * 1000}
-                                  y2={b.y * 1000}
-                                  stroke={
-                                    overlay
-                                      ? ['#f4c95f', '#70d9c1', '#f3a47a', '#b0b8ff'][i % 4]
-                                      : '#f3c559'
-                                  }
-                                  strokeWidth="2"
-                                  vectorEffect="non-scaling-stroke"
-                                  strokeDasharray={
-                                    a.provenance === 'estimated' || b.provenance === 'estimated'
-                                      ? '4 5'
-                                      : undefined
-                                  }
-                                />
-                              ),
-                            )}
-                            {d.track
-                              .filter((p) => overlay || p.frame <= frame)
-                              .map((p) => (
-                                <circle
-                                  key={`point-${p.frame}`}
-                                  cx={p.x * 1000}
-                                  cy={p.y * 1000}
-                                  r="2.5"
-                                  fill={p.provenance === 'manual' ? '#9addca' : '#f3c559'}
-                                >
-                                  <title>
-                                    {p.provenance} / frame {p.frame}
-                                  </title>
-                                </circle>
-                              ))}
-                            {d.track
-                              .filter((p) => p.frame === frame)
-                              .map((p) => (
-                                <circle
-                                  key={p.frame}
-                                  cx={p.x * 1000}
-                                  cy={p.y * 1000}
-                                  r="8"
-                                  fill="none"
-                                  stroke="#fff3c3"
-                                  strokeWidth="2"
-                                  vectorEffect="non-scaling-stroke"
-                                />
-                              ))}
-                            {d.bounce && (
-                              <g>
-                                <circle
-                                  cx={d.bounce.x * 1000}
-                                  cy={d.bounce.y * 1000}
-                                  r="13"
-                                  fill="#ef855344"
-                                  stroke="#ffac77"
-                                  strokeWidth="2"
-                                  vectorEffect="non-scaling-stroke"
-                                />
-                                <circle
-                                  cx={d.bounce.x * 1000}
-                                  cy={d.bounce.y * 1000}
-                                  r="3"
-                                  fill="#fff0d2"
-                                />
-                              </g>
-                            )}
-                          </g>
-                        ),
+                      {mode === 'seed' && analysisSeed?.frame === frame && (
+                        <g aria-label="Selected tracking start">
+                          <circle
+                            cx={analysisSeed.x * 1000}
+                            cy={analysisSeed.y * 1000}
+                            r="12"
+                            fill="none"
+                            stroke="#9addca"
+                            strokeWidth="3"
+                            vectorEffect="non-scaling-stroke"
+                          />
+                          <path
+                            d={`M${analysisSeed.x * 1000 - 20},${analysisSeed.y * 1000}h40 M${analysisSeed.x * 1000},${analysisSeed.y * 1000 - 20}v40`}
+                            stroke="#fff"
+                            strokeWidth="1.5"
+                            vectorEffect="non-scaling-stroke"
+                          />
+                        </g>
                       )}
+                      {(mode === 'seed'
+                        ? []
+                        : overlay
+                          ? visible
+                          : selectedDelivery
+                            ? [selectedDelivery]
+                            : []
+                      ).map((d, i) => (
+                        <g key={d.id} opacity={overlay && d.id !== selected ? 0.5 : 1}>
+                          {segments(d.track.filter((p) => overlay || p.frame <= frame)).map(
+                            ({ a, b }) => (
+                              <line
+                                key={`${a.frame}-${b.frame}`}
+                                x1={a.x * 1000}
+                                y1={a.y * 1000}
+                                x2={b.x * 1000}
+                                y2={b.y * 1000}
+                                stroke={
+                                  overlay
+                                    ? ['#f4c95f', '#70d9c1', '#f3a47a', '#b0b8ff'][i % 4]
+                                    : '#f3c559'
+                                }
+                                strokeWidth="2"
+                                vectorEffect="non-scaling-stroke"
+                                strokeDasharray={
+                                  a.provenance === 'estimated' || b.provenance === 'estimated'
+                                    ? '4 5'
+                                    : undefined
+                                }
+                              />
+                            ),
+                          )}
+                          {d.track
+                            .filter((p) => overlay || p.frame <= frame)
+                            .map((p) => (
+                              <circle
+                                key={`point-${p.frame}`}
+                                cx={p.x * 1000}
+                                cy={p.y * 1000}
+                                r="2.5"
+                                fill={p.provenance === 'manual' ? '#9addca' : '#f3c559'}
+                              >
+                                <title>
+                                  {p.provenance} / frame {p.frame}
+                                </title>
+                              </circle>
+                            ))}
+                          {d.track
+                            .filter((p) => p.frame === frame)
+                            .map((p) => (
+                              <circle
+                                key={p.frame}
+                                cx={p.x * 1000}
+                                cy={p.y * 1000}
+                                r="8"
+                                fill="none"
+                                stroke="#fff3c3"
+                                strokeWidth="2"
+                                vectorEffect="non-scaling-stroke"
+                              />
+                            ))}
+                          {d.bounce && (
+                            <g>
+                              <circle
+                                cx={d.bounce.x * 1000}
+                                cy={d.bounce.y * 1000}
+                                r="13"
+                                fill="#ef855344"
+                                stroke="#ffac77"
+                                strokeWidth="2"
+                                vectorEffect="non-scaling-stroke"
+                              />
+                              <circle
+                                cx={d.bounce.x * 1000}
+                                cy={d.bounce.y * 1000}
+                                r="3"
+                                fill="#fff0d2"
+                              />
+                            </g>
+                          )}
+                        </g>
+                      ))}
                       {mode === 'calibrate' && (
                         <>
                           <polygon
@@ -1012,7 +1172,7 @@ function App() {
                     <div className="video-bottom-label">
                       {mode === 'bounce'
                         ? 'Click the ground contact point at the bounce frame'
-                        : mode === 'track'
+                        : mode === 'track' || mode === 'seed'
                           ? 'Click the ball centre on this frame'
                           : mode === 'calibrate'
                             ? `Corner ${Math.min(calPoints.length + 1, 4)}: ${cornerNames[Math.min(calPoints.length, 3)]}`
@@ -1246,7 +1406,7 @@ function App() {
                       <div className="review-actions">
                         <button
                           className="secondary"
-                          onClick={runTracker}
+                          onClick={() => beginAnalysis()}
                           disabled={!!busy || !!activeJob}
                         >
                           <WandSparkles size={15} />{' '}
@@ -1320,7 +1480,7 @@ function App() {
                             <div className="contact-result">
                               <b>
                                 {latestJob.result.bounce
-                                  ? 'Bounce detected automatically'
+                                  ? 'Bounce candidate · review contact'
                                   : 'Bounce unresolved'}
                               </b>
                               {latestJob.result.bounce && (
@@ -1349,12 +1509,47 @@ function App() {
                               )}
                             </div>
                           )}
+                          {latestJob.result?.diagnostics?.first_lost_frame != null && (
+                            <div
+                              className="tracking-recovery"
+                              role="region"
+                              aria-label="Recover tracking"
+                            >
+                              <b>
+                                Ball lost at frame {latestJob.result.diagnostics.first_lost_frame}
+                              </b>
+                              <p>
+                                Inspect the last observation, step forward until the ball is
+                                visible, then select it again. Earlier points are kept.
+                              </p>
+                              <button
+                                className="secondary"
+                                disabled={!!busy || !!activeJob}
+                                onClick={() =>
+                                  beginAnalysis(
+                                    latestJob.result!.diagnostics!.last_reliable_frame ??
+                                      selectedDelivery.start,
+                                  )
+                                }
+                              >
+                                Correct ball and resume
+                              </button>
+                            </div>
+                          )}
                           {latestJob.result && (
                             <button
                               className="secondary"
                               onClick={() => {
                                 edit((s) =>
-                                  Object.assign(s, applyAnalysis(s, selected, latestJob.result!)),
+                                  Object.assign(
+                                    s,
+                                    applyAnalysis(
+                                      s,
+                                      selected,
+                                      latestJob.result!,
+                                      latestJob.input.seed?.frame,
+                                    ),
+                                  ),
                                 );
                                 if (latestJob.result?.bounce)
                                   setFrame(latestJob.result.bounce.frame);
@@ -1418,7 +1613,24 @@ function App() {
                             src={`/api/sessions/${session.id}/frame/${selectedDelivery.bounce.frame}`}
                             alt="Pitch contact location on the recording"
                           />
-                          <svg viewBox="0 0 1000 1000" preserveAspectRatio="none">
+                          <svg
+                            viewBox="0 0 1000 1000"
+                            preserveAspectRatio="none"
+                            role="button"
+                            tabIndex={0}
+                            aria-label="Open bounce source frame"
+                            onClick={() => {
+                              setPlaying(false);
+                              setFrame(selectedDelivery.bounce!.frame);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setPlaying(false);
+                                setFrame(selectedDelivery.bounce!.frame);
+                              }
+                            }}
+                          >
                             <circle
                               cx={selectedDelivery.bounce.x * 1000}
                               cy={selectedDelivery.bounce.y * 1000}
@@ -1437,12 +1649,16 @@ function App() {
                           </svg>
                         </div>
                         <b>
-                          {selectedDelivery.bounce.provenance === 'manual'
-                            ? 'Marked contact'
-                            : 'Bounce candidate'}{' '}
+                          {selectedDelivery.status === 'reviewed'
+                            ? 'Reviewed contact'
+                            : selectedDelivery.bounce.provenance === 'manual'
+                              ? 'Marked contact'
+                              : 'Bounce candidate'}{' '}
                           / F{selectedDelivery.bounce.frame}
                         </b>
-                        <p>The pin marks where the ball meets the pitch in this camera view.</p>
+                        <p>
+                          The pin marks the estimated ground-contact position in this camera view.
+                        </p>
                         <small>
                           Metre-based line and length need a fixed camera and known ground geometry.
                         </small>
@@ -1466,9 +1682,11 @@ function App() {
                           </b>
                         )}
                         <span className="contact-status">
-                          {selectedDelivery.bounce.provenance === 'manual'
-                            ? 'Manually marked'
-                            : 'Automatic estimate · needs review'}
+                          {selectedDelivery.status === 'reviewed'
+                            ? 'Reviewed contact'
+                            : selectedDelivery.bounce.provenance === 'manual'
+                              ? 'Manually marked'
+                              : 'Automatic estimate · needs review'}
                         </span>
                         <button
                           className="secondary"
@@ -1479,6 +1697,23 @@ function App() {
                         >
                           Show contact frame
                         </button>
+                        {selectedDelivery.status !== 'reviewed' && (
+                          <button
+                            className="primary"
+                            disabled={
+                              frame !== selectedDelivery.bounce.frame ||
+                              loadedFrame !== frame ||
+                              playing
+                            }
+                            onClick={() =>
+                              editDelivery((d) => {
+                                d.status = 'reviewed';
+                              })
+                            }
+                          >
+                            Confirm contact
+                          </button>
+                        )}
                         {selectedDelivery.bounce.ground_eligible === false && (
                           <p>
                             Camera stability could not be confirmed. The contact is shown on the

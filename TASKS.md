@@ -21,6 +21,18 @@ Version-tag delivery produces a draft release after its own checks and smoke tes
 
 ## After the first increment
 
+### Selection, recovery and contact review — 24 November 2026
+
+- [x] Finish provisional ball selection, magnified confirmation and correct-frame forward tracking.
+- [x] Keep the original size anchor, tolerate blur, expose the first lost frame and provide a reseed action.
+- [x] Preserve earlier observations and reviewed contacts when replacing a forward segment.
+- [x] Detect short supported contact transitions across a single missed observation; reject lateral turns and smooth apexes.
+- [x] Link image-space and calibrated map contacts to source footage; add explicit contact confirmation.
+- [x] Run local synthetic/development-clip checks, regression tests, browser workflows and responsive visual review.
+- [ ] Establish a held-out real bounce benchmark with independently visible ground contact.
+
+See `docs/TRACKING-SELECTION-07.md` for behavior, evidence and remaining limitations.
+
 ### Review usability and playback — 22 November 2026
 
 - [x] Replace timer-driven JPEG playback with native range-streamed video, preserving exact-frame marking and load-paced codec fallback.

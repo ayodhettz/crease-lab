@@ -103,7 +103,10 @@ export function PitchMap({
           aria-label={`Open ${p.delivery.label || `delivery ${i + 1}`}`}
           onClick={() => onSelect(p.delivery.id)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') onSelect(p.delivery.id);
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onSelect(p.delivery.id);
+            }
           }}
           className="map-point"
           data-selected={selected === p.delivery.id}

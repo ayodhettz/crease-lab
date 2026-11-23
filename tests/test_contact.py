@@ -56,3 +56,20 @@ def test_automatic_seed_contact_and_calibrated_pitch_mapping(tmp_path):
     assert result["contact_analysis"]["ground"]["units"] == "m"
     assert result["contact_analysis"]["ground"]["status"] == "estimated"
     assert all(p["provenance"] != "manual" for p in result["points"])
+
+
+def test_short_bounce_with_one_missing_detection_and_lateral_deflection():
+    points = [
+        dict(frame=t, x=(40 + 3 * t) / 320, y=(60 + 6 * t if t <= 5 else 90 - 4 * (t - 5)) / 240)
+        for t in range(11)
+        if t != 2
+    ]
+    candidate = bounce_candidate(points, 320, 240)
+    assert candidate["frame"] == 5
+    assert candidate["evidence"]["missing_frames"] == 1
+    # A lateral turn without the upward contact impulse is not a bounce.
+    lateral = [
+        dict(frame=t, x=(40 + 3 * t if t <= 5 else 55 - 4 * (t - 5)) / 320, y=(60 + 3 * t) / 240)
+        for t in range(11)
+    ]
+    assert bounce_candidate(lateral, 320, 240) is None

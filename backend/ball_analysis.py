@@ -307,14 +307,16 @@ def compensate_camera(path, points, width, height):
 def bounce_candidate(points, width, height):
     """Find a velocity discontinuity, while rejecting smooth trajectory apexes."""
     ordered = sorted(points, key=lambda p: p["frame"])
-    if len(ordered) < 13:
+    if len(ordered) < 7:
         return None
     frames = np.array([p["frame"] for p in ordered])
     coords = np.array([[p["x"] * width, p["y"] * height] for p in ordered])
     candidates = []
-    for index in range(6, len(ordered) - 6):
-        lo, hi = index - 6, index + 7
-        if np.max(np.diff(frames[lo:hi])) > 1:
+    for index in range(3, len(ordered) - 3):
+        lo, hi = max(0, index - 6), min(len(ordered), index + 7)
+        # Fit actual frame times across a single missed detection, without
+        # inventing a contact at an unobserved frame or spanning long occlusions.
+        if np.max(np.diff(frames[lo:hi])) > 2:
             continue
         t = frames[lo:hi] - frames[index]
         values = coords[lo:hi]
@@ -333,6 +335,7 @@ def bounce_candidate(points, width, height):
             gain > 0.65
             and angle > 30
             and jump > 2
+            and split[3, 1] < -max(1.5, abs(split[3, 0]) * 0.5)
             and np.sqrt(residual / len(t)) < max(8, height * 0.02)
         ):
             candidates.append(
@@ -343,6 +346,9 @@ def bounce_candidate(points, width, height):
                         "fit_gain": round(gain, 3),
                         "turn_degrees": round(angle, 1),
                         "velocity_change_px_per_frame": round(jump, 2),
+                        "support_before": index - lo,
+                        "support_after": hi - index - 1,
+                        "missing_frames": int(frames[hi - 1] - frames[lo] + 1 - (hi - lo)),
                     },
                 )
             )

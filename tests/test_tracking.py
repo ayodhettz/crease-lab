@@ -39,6 +39,36 @@ def test_appearance_stays_missing_instead_of_following_distractor(tmp_path):
     result = track_video(path, 0, 19, {"frame": 0, "x": 55 / 320, "y": 80 / 240})
     assert [p["frame"] for p in result["points"]] == list(range(5))
     assert result["bounce"] is None
+    assert result["diagnostics"]["last_reliable_frame"] == 4
+    assert result["diagnostics"]["first_lost_frame"] == 5
+
+
+def test_later_seed_uses_the_requested_source_frame(tmp_path):
+    path = tmp_path / "later-seed.mp4"
+    make_moving_scene(path)
+    result = track_video(path, 0, 19, {"frame": 9, "x": 100 / 320, "y": 89 / 240})
+    assert result["points"][0]["frame"] == 9
+    assert result["points"][0]["provenance"] == "manual"
+    assert len(result["points"]) == 11
+    assert all(
+        np.hypot(p["x"] * 320 - (55 + 5 * p["frame"]), p["y"] * 240 - (80 + p["frame"])) < 4
+        for p in result["points"]
+    )
+
+
+def test_identity_anchor_rejects_gradually_growing_same_colour_component(tmp_path):
+    path = tmp_path / "growing-distractor.mp4"
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30, (320, 240))
+    try:
+        for f in range(20):
+            image = np.full((240, 320, 3), (70, 100, 75), np.uint8)
+            cv2.circle(image, (50 + 5 * f, 80), 4 if f < 5 else 4 + (f - 4) * 2, (25, 25, 190), -1)
+            writer.write(image)
+    finally:
+        writer.release()
+    result = track_video(path, 0, 19, dict(frame=0, x=50 / 320, y=80 / 240))
+    assert result["diagnostics"]["stop_reason"] == "lost-ball"
+    assert max(p["frame"] for p in result["points"]) < 10
 
 
 @pytest.mark.parametrize(

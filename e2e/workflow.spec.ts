@@ -42,6 +42,7 @@ test('demo, manual correction, persistence, map, exports, and tracking', async (
   expect(pngDownload.suggestedFilename()).toBe('crease-lab-pitch-map.png');
 
   await page.getByRole('button', { name: 'Analyze delivery' }).click();
+  await page.getByRole('button', { name: 'Find ball automatically', exact: true }).click();
   await expect(page.locator('.job-result')).toContainText('COMPLETED');
   await expect(page.locator('.job-result')).toContainText(/Experimental (motion|appearance)/);
   await expect(page.getByLabel('Delivery label', { exact: true })).toHaveValue(
@@ -128,7 +129,8 @@ test('automatic analysis finds a bounce and maps it without manual ball or bounc
   await page.getByRole('button', { name: 'Apply calibration' }).click();
   await page.getByRole('button', { name: 'Add delivery here' }).click();
   await page.getByRole('button', { name: 'Analyze delivery' }).click();
-  await expect(page.locator('.contact-result')).toContainText('Bounce detected automatically');
+  await page.getByRole('button', { name: 'Find ball automatically', exact: true }).click();
+  await expect(page.locator('.contact-result')).toContainText('Bounce candidate');
   await expect(page.getByLabel('Review status', { exact: true })).toHaveValue('estimated');
   await expect(page.getByRole('img', { name: 'Recording frame 18', exact: true })).toBeVisible();
   await expect(page.locator('.contact-result')).toContainText('Estimated line:');
@@ -136,11 +138,58 @@ test('automatic analysis finds a bounce and maps it without manual ball or bounc
   await page.getByRole('button', { name: 'Session overview', exact: true }).click();
   await expect(page.locator('.metric').first()).toContainText('1 ground estimates');
   await page.getByRole('button', { name: 'Analyze delivery', exact: true }).click();
+  await page.getByRole('button', { name: 'Find ball automatically', exact: true }).click();
   await expect.poll(() => analysisRequests.length).toBe(2);
   expect(analysisRequests[1].seed).toBeNull();
   await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('status')).toContainText('Saved revision');
+});
+
+test('ball selection is provisional, confirmed seed tracks forward, and image contact opens evidence', async ({
+  page,
+}) => {
+  const jobs: { seed: { frame: number; x: number; y: number } }[] = [];
+  let saves = 0;
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().endsWith('/jobs')) jobs.push(r.postDataJSON());
+    if (r.method() === 'PUT') saves++;
+  });
+  await page.goto('/');
+  await page.locator('input[type=file]').setInputFiles('e2e/fixtures/bounce.mp4');
+  await page.getByRole('button', { name: 'Add delivery here', exact: true }).click();
+  await expect(page.getByRole('img', { name: 'Recording frame 0', exact: true })).toHaveJSProperty(
+    'complete',
+    true,
+  );
+  await page.getByRole('button', { name: 'Analyze delivery', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start tracking', exact: true })).toBeDisabled();
+  const surface = page.getByLabel('Video annotation surface');
+  const box = (await surface.boundingBox())!;
+  await surface.click({ position: { x: (box.width * 50) / 320, y: (box.height * 80) / 240 } });
+  await expect(page.getByRole('img', { name: 'Selected ball magnified' })).toBeVisible();
+  await page.screenshot({ path: 'work/ui-07-selection.png', fullPage: true });
+  expect(jobs).toHaveLength(0);
+  expect(saves).toBe(0);
+  await page.getByRole('button', { name: 'Cancel selection', exact: true }).click();
+  expect(jobs).toHaveLength(0);
+  await page.getByRole('button', { name: 'Analyze delivery', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start tracking', exact: true })).toBeDisabled();
+  await surface.click({ position: { x: (box.width * 50) / 320, y: (box.height * 80) / 240 } });
+  await page.getByRole('button', { name: 'Start tracking', exact: true }).click();
+  await expect.poll(() => jobs.length).toBe(1);
+  expect(jobs[0].seed.frame).toBe(0);
+  expect(jobs[0].seed.x).toBeCloseTo(50 / 320, 2);
+  await expect(page.locator('.contact-result')).toContainText('Bounce candidate');
+  await expect(page.locator('.map-panel .badge')).toHaveText('IMAGE POSITION');
+  await page.getByRole('button', { name: 'Open bounce source frame' }).click();
+  await expect(page.getByRole('img', { name: 'Recording frame 18', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm contact', exact: true }).click();
+  await expect(page.getByLabel('Review status', { exact: true })).toHaveValue('reviewed');
+  await page.screenshot({ path: 'work/ui-07-contact.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'work/ui-07-mobile.png', fullPage: true });
 });
 
 test('shows contact on the recording before calibration and explains a missing bounce', async ({

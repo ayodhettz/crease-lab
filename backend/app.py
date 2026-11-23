@@ -243,6 +243,33 @@ def create_app(data_dir: Path | None = None):
                 snapshot.get("calibration"),
                 ball_colour=snapshot.get("ball_colour", "auto"),
             )
+            if snapshot.get("seed") and result["points"]:
+                from .ball_analysis import analyse_contact
+
+                # Recovery replaces the forward segment only. Reuse earlier
+                # observations to test a contact straddling the corrected frame.
+                before = [
+                    p
+                    for p in delivery["track"]
+                    if p["frame"] < snapshot["seed"]["frame"] and p["provenance"] != "estimated"
+                ]
+                if before:
+                    cap = cv2.VideoCapture(str(store.media_path(snapshot["file"])))
+                    width, height = int(cap.get(3)), int(cap.get(4))
+                    cap.release()
+                    result.update(
+                        analyse_contact(
+                            store.media_path(snapshot["file"]),
+                            before + result["points"],
+                            width,
+                            height,
+                            snapshot.get("calibration"),
+                        )
+                    )
+                    if result["bounce"]:
+                        result["message"] = result["message"].replace(
+                            "Bounce unresolved.", "Bounce candidate detected."
+                        )
             store.update_job(jid, "completed", result=result)
         except Exception as exc:
             store.update_job(jid, "failed", error=str(exc))

@@ -60,6 +60,18 @@ it('preserves manually reviewed contact and excludes camera-ineligible ground co
   expect(analyse(next.deliveries, next.calibration, next.target).points).toHaveLength(0);
 });
 
+it('retains an explicitly reviewed automatic contact on reanalysis', () => {
+  const reviewed = applyAnalysis(state, 'd', result);
+  reviewed.deliveries[0].status = 'reviewed';
+  const next = applyAnalysis(reviewed, 'd', {
+    ...result,
+    bounce: null,
+    contact_analysis: { status: 'unresolved', reason: 'No contact', ground: null },
+  });
+  expect(next.deliveries[0].bounce?.frame).toBe(15);
+  expect(next.deliveries[0].status).toBe('reviewed');
+});
+
 it('clears an obsolete automatic bounce when a new analysis is unresolved', () => {
   const estimated = applyAnalysis(state, 'd', result);
   const next = applyAnalysis(estimated, 'd', {
@@ -69,4 +81,26 @@ it('clears an obsolete automatic bounce when a new analysis is unresolved', () =
   });
   expect(next.deliveries[0].bounce).toBeNull();
   expect(next.deliveries[0].status).toBe('unresolved');
+});
+
+it('reseeding preserves the earlier segment and contact but replaces the forward tail', () => {
+  const previous = applyAnalysis(state, 'd', result);
+  previous.deliveries[0].track.push(
+    { frame: 4, x: 0.3, y: 0.4, provenance: 'observed', score: 0.8 },
+    { frame: 21, x: 0.9, y: 0.8, provenance: 'observed', score: 0.8 },
+  );
+  const next = applyAnalysis(
+    previous,
+    'd',
+    {
+      ...result,
+      points: [{ frame: 20, x: 0.4, y: 0.5, provenance: 'manual', score: null }],
+      bounce: null,
+      contact_analysis: { status: 'unresolved', reason: 'No new contact', ground: null },
+    },
+    20,
+  );
+  expect(next.deliveries[0].track.map((p) => p.frame)).toEqual([1, 4, 20]);
+  expect(next.deliveries[0].bounce?.frame).toBe(15);
+  expect(next.deliveries[0].status).toBe('estimated');
 });

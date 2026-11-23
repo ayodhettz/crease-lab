@@ -23,6 +23,7 @@ def validate(media, output):
         "pipeline": PIPELINE_VERSION,
         "kind": "exploratory real-footage spot checks, not a blinded benchmark",
         "downloaded_video_bytes": 0,
+        "source_video_bytes": 0,
         "clips": [],
     }
     for clip in manifest["clips"]:
@@ -31,7 +32,7 @@ def validate(media, output):
             raise FileNotFoundError(
                 f"Missing local source: {source}; this script never downloads footage"
             )
-        report["downloaded_video_bytes"] += source.stat().st_size
+        report["source_video_bytes"] += source.stat().st_size
         cap = cv2.VideoCapture(str(source))
         width, height = int(cap.get(3)), int(cap.get(4))
         entry = {

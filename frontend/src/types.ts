@@ -59,7 +59,7 @@ export type Job = {
   delivery_id: string;
   status: 'queued' | 'running' | 'completed' | 'failed';
   error: string | null;
-  input: { revision: number; delivery: Delivery; pipeline: string };
+  input: { revision: number; delivery: Delivery; pipeline: string; seed?: TrackPoint | null };
   result: {
     points: TrackPoint[];
     message: string;
@@ -71,6 +71,9 @@ export type Job = {
       stop_reason: string;
       ball_colour: string | null;
       score_meaning: string;
+      tracking_start?: number;
+      last_reliable_frame?: number | null;
+      first_lost_frame?: number | null;
     };
     bounce?: Bounce | null;
     contact_analysis?: {

@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-PIPELINE_VERSION = "contact-analysis-0.6.0"
+PIPELINE_VERSION = "contact-analysis-0.7.0"
 
 
 def white_ball_mask(hsv, minimum_value=180, radius=None):
@@ -59,6 +59,8 @@ class BallAppearance:
                 self.active = False
         else:
             self.active = False
+        # Keep the original identity anchor separate from the adaptive size estimate.
+        self.original_area = self.area
 
     def candidates(self, image):
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -81,7 +83,10 @@ class BallAppearance:
                 continue
             if max(w, h) / max(1, min(w, h)) > 5:
                 continue
-            if self.area and not self.area * 0.2 <= area <= self.area * 4:
+            anchor = getattr(self, "original_area", None)
+            if self.area and not self.area * 0.2 <= area <= self.area * 6:
+                continue
+            if anchor and area > anchor * 8:
                 continue
             moments = cv2.moments(contour)
             if moments["m00"]:
@@ -116,6 +121,9 @@ class BallAppearance:
 def track_video(path, start, end, seed=None, roi=None, calibration=None, ball_colour="auto"):
     from .ball_analysis import analyse_contact, find_coloured_seed
 
+    if seed and not start <= seed["frame"] <= end:
+        raise ValueError("Seed must be inside the delivery")
+
     automatic_seed = seed is None
     if seed is None:
         seed = find_coloured_seed(path, start, end, roi=roi, ball_colour=ball_colour)
@@ -128,6 +136,8 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None, ball_co
     velocity = np.zeros(2)
     appearance = None
     gap = 0
+    first_lost_frame = None
+    last_reliable_frame = None
     width, height = int(cap.get(3)), int(cap.get(4))
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not cap.isOpened() or width <= 0 or height <= 0:
@@ -140,9 +150,10 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None, ball_co
         # Optional image-space search boundary; independent of ground calibration.
         cv2.fillConvexPoly(mask, poly.astype(np.int32), 255)
 
-    cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, start - 1))
+    first_frame = seed["frame"] if seed else max(0, start - 1)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, first_frame)
     try:
-        for frame in range(max(0, start - 1), end + 1):
+        for frame in range(first_frame, end + 1):
             ok, image = cap.read()
             if not ok:
                 break
@@ -174,6 +185,7 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None, ball_co
                     }
                 )
                 previous, gap = grey, 0
+                last_reliable_frame = frame
                 continue
             if previous is None or frame < start or (seed and frame < seed["frame"]):
                 previous = grey
@@ -201,6 +213,10 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None, ball_co
                     )
                     penalty = max(0, appearance.brightness - light) * 0.8 if appearance.white else 0
                     cost = distance + penalty
+                    # Size may adapt as the ball recedes, but must not walk onto
+                    # a growing same-colour player component over several frames.
+                    if appearance.area:
+                        cost += max(0, np.log(area / appearance.area)) * radius * 0.25
                     # Once motion is established, a weak white-blob match is a gap,
                     # not permission to switch identity onto the bat or a player.
                     gate = radius * 0.6 if appearance.white and len(points) >= 4 else radius
@@ -226,8 +242,11 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None, ball_co
                         }
                     )
                     gap = 0
+                    last_reliable_frame = frame
                 else:
                     gap += 1
+                    if gap == 1:
+                        first_lost_frame = frame
                     longest_gap = max(longest_gap, gap)
                     if gap > max(2, round(fps * 0.15)):
                         stopped_reason = "lost-ball"
@@ -263,6 +282,9 @@ def track_video(path, start, end, seed=None, roi=None, calibration=None, ball_co
             else None,
             "score_meaning": "association quality, not calibrated probability",
             "requested_ball_colour": ball_colour,
+            "tracking_start": first_frame,
+            "last_reliable_frame": last_reliable_frame,
+            "first_lost_frame": first_lost_frame if gap else None,
         },
         "pipeline": PIPELINE_VERSION,
         "points": points,
