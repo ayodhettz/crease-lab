@@ -196,3 +196,55 @@ def test_interrupted_job_recovery_and_path_confinement(tmp_path):
     assert Store(tmp_path).job(jid)["status"] == "failed"
     with pytest.raises(ValueError):
         store.media_path("../original.mp4")
+
+
+def test_reseed_uses_earlier_observations_for_contact_without_overwriting_session(client, tmp_path):
+    path = tmp_path / "recovery.mp4"
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 30, (320, 240))
+    assert writer.isOpened()
+    try:
+        for f in range(40):
+            image = np.full((240, 320, 3), (100, 120, 130), np.uint8)
+            y = 80 + 6 * f if f <= 18 else 188 - 4 * (f - 18)
+            cv2.circle(image, (50 + 3 * f, y), 8, (25, 25, 180), -1)
+            writer.write(image)
+    finally:
+        writer.release()
+    imported = client.post(
+        "/api/sessions/import", files={"file": ("recovery.mp4", path.read_bytes(), "video/mp4")}
+    ).json()
+    sid, state = imported["id"], imported["state"]
+    state["deliveries"] = [
+        dict(
+            id="recovery",
+            start=0,
+            end=39,
+            track=[
+                dict(
+                    frame=f,
+                    x=(50 + 3 * f) / 320,
+                    y=(80 + 6 * f) / 240,
+                    provenance="observed",
+                    score=0.9,
+                )
+                for f in range(18)
+            ],
+        )
+    ]
+    saved = client.put(f"/api/sessions/{sid}", json=dict(revision=0, state=state))
+    assert saved.status_code == 200, saved.text
+    queued = client.post(
+        f"/api/sessions/{sid}/jobs",
+        json=dict(delivery_id="recovery", seed=dict(frame=18, x=104 / 320, y=188 / 240)),
+    )
+    assert queued.status_code == 202, queued.text
+    for _ in range(100):
+        job = client.get(f"/api/sessions/{sid}/jobs").json()[0]
+        if job["status"] in ("completed", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["status"] == "completed", job
+    assert job["result"]["points"][0]["frame"] == 18
+    assert job["result"]["bounce"]["frame"] == 18
+    assert "Bounce candidate detected" in job["result"]["message"]
+    assert client.get(f"/api/sessions/{sid}").json()["state"] == saved.json()["state"]

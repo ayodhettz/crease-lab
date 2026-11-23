@@ -26,7 +26,7 @@ This is a bowler-end, approximately upright-view heuristic. Bat/pad deflections,
 
 ## Validation
 
-- Backend: 34 tests passed, covering later seeds, growth drift, lost-frame diagnostics, red ball versus white hat, blur/occlusion, short contact support and rejection cases, plus API/persistence/export behavior.
+- Backend: 35 tests passed (34-test suite plus the added recovery integration check), covering later seeds, growth drift, lost-frame diagnostics, red ball versus white hat, blur/occlusion, short contact support and rejection cases, plus API/persistence/export behavior. The recovery integration check starts exactly at contact and verifies that earlier observations supply the missing approach context without changing saved session state.
 - Frontend: 9 tests passed, including forward-segment replacement, earlier contact preservation and reviewed automatic-contact preservation.
 - Browser: 8 workflows passed. The updated selection/contact test additionally passed with provisional/cancel checks, the posted seed, source contact navigation, explicit confirmation and a 390 px mobile overflow check.
 - Production build, Python lint/format and frontend formatting passed. Desktop selection/contact and mobile contact screenshots were inspected locally.
